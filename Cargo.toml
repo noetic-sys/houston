@@ -1,0 +1,21 @@
+[workspace]
+members = [
+    "crates/*",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+readme = "README.md"
+version = "0.1.9"
+repository = "https://www.github.com/kasandell/houston"
+authors = [
+    "Kyle Sandell"
+]
+description = "Houston"
+
+
+
+[workspace.dependencies]
+ratatui = "0.29.0"
