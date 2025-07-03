@@ -5,6 +5,7 @@ use octocrab::models::Repository;
 use serde::{Deserialize, Serialize};
 use serde_json;
 
+#[derive(Clone)]
 pub struct GitHubProvider {
     client: Octocrab,
     org: Option<String>,

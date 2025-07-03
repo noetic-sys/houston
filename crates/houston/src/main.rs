@@ -1,8 +1,16 @@
 use houston_api::{GitHubProvider, VcsProvider, Action};
-use houston_ui::{RepoListPanel, render_repo_list_panel, ActionsPanel, render_actions_panel};
+use houston_ui::{RepoListPanel, render_repo_list_panel, ActionsPanel, render_actions_panel, TagsPanel, render_tags_panel};
 use ratatui::{prelude::*, widgets::{ListState, Paragraph, Block, Borders, ListItem, List}};
 use std::io;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
+
+#[derive(Copy, Clone, PartialEq, Eq)]
+enum FocusedPanel {
+    Repos,
+    Actions,
+    Tags,
+}
 
 struct AppState {
     repos: Vec<String>,
@@ -19,6 +27,12 @@ struct AppState {
     action_load_debounce: Duration,
     notification: Option<String>,
     notification_time: Option<Instant>,
+    tags: Vec<houston_api::Tag>,
+    selected_tag: usize,
+    tags_list_state: ListState,
+    tags_loading: bool,
+    actions_loading: bool,
+    focused_panel: FocusedPanel,
 }
 
 impl AppState {
@@ -44,6 +58,12 @@ impl AppState {
             action_load_debounce: Duration::from_millis(500),
             notification: None,
             notification_time: None,
+            tags: Vec::new(),
+            selected_tag: 0,
+            tags_list_state: ListState::default(),
+            tags_loading: false,
+            actions_loading: false,
+            focused_panel: FocusedPanel::Repos,
         }
     }
 
@@ -147,6 +167,25 @@ impl AppState {
         self.last_action_load = Some(Instant::now());
     }
 
+    async fn load_tags_for_selected_repo(&mut self) {
+        if !self.filtered_repos.is_empty() {
+            let repo_name = &self.filtered_repos[self.selected_repo];
+            match self.provider.list_tags(repo_name).await {
+                Ok(tags) => {
+                    self.tags = tags;
+                    self.selected_tag = 0;
+                    if !self.tags.is_empty() {
+                        self.tags_list_state.select(Some(0));
+                    }
+                }
+                Err(e) => {
+                    self.set_notification(format!("Failed to load tags for {}: {}", repo_name, e));
+                    self.tags = Vec::new();
+                }
+            }
+        }
+    }
+
     fn should_load_actions(&self) -> bool {
         if !self.needs_action_reload {
             return false;
@@ -188,6 +227,60 @@ impl AppState {
                 }
             }
         }
+    }
+
+    fn start_loading_tags(&mut self) {
+        self.tags_loading = true;
+        self.tags.clear();
+        self.tags_list_state.select(None);
+    }
+    fn finish_loading_tags(&mut self, tags: Vec<houston_api::Tag>) {
+        self.tags_loading = false;
+        self.tags = tags;
+        self.selected_tag = 0;
+        if !self.tags.is_empty() {
+            self.tags_list_state.select(Some(0));
+        }
+    }
+    fn fail_loading_tags(&mut self, msg: String) {
+        self.tags_loading = false;
+        self.tags.clear();
+        self.tags_list_state.select(None);
+        self.set_notification(msg);
+    }
+    fn start_loading_actions(&mut self) {
+        self.actions_loading = true;
+        self.actions.clear();
+        self.actions_list_state.select(None);
+    }
+    fn finish_loading_actions(&mut self, actions: Vec<Action>) {
+        self.actions_loading = false;
+        self.actions = actions;
+        self.selected_action = 0;
+        if !self.actions.is_empty() {
+            self.actions_list_state.select(Some(0));
+        }
+    }
+    fn fail_loading_actions(&mut self, msg: String) {
+        self.actions_loading = false;
+        self.actions.clear();
+        self.actions_list_state.select(None);
+        self.set_notification(msg);
+    }
+
+    fn focus_next_panel(&mut self) {
+        self.focused_panel = match self.focused_panel {
+            FocusedPanel::Repos => FocusedPanel::Actions,
+            FocusedPanel::Actions => FocusedPanel::Tags,
+            FocusedPanel::Tags => FocusedPanel::Repos,
+        };
+    }
+    fn focus_prev_panel(&mut self) {
+        self.focused_panel = match self.focused_panel {
+            FocusedPanel::Repos => FocusedPanel::Tags,
+            FocusedPanel::Actions => FocusedPanel::Repos,
+            FocusedPanel::Tags => FocusedPanel::Actions,
+        };
     }
 }
 
@@ -254,12 +347,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> io::Result<()> {
     let mut search_mode = false;
-    
+    let mut last_repo_idx = app.selected_repo;
+    let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
+
     loop {
         app.maybe_clear_notification();
-        // Load actions if needed and debounce period has passed
-        if app.should_load_actions() {
-            app.load_actions_for_selected_repo().await;
+
+        // Check for background results
+        while let Ok(msg) = rx.try_recv() {
+            match msg {
+                AppMsg::TagsLoaded(tags) => app.finish_loading_tags(tags),
+                AppMsg::TagsFailed(e) => app.fail_loading_tags(e),
+                AppMsg::ActionsLoaded(actions) => app.finish_loading_actions(actions),
+                AppMsg::ActionsFailed(e) => app.fail_loading_actions(e),
+            }
+        }
+
+        // Always load actions/tags when repo changes
+        if app.selected_repo != last_repo_idx {
+            let repo_name = app.filtered_repos.get(app.selected_repo).cloned();
+            if let Some(repo_name) = repo_name {
+                app.start_loading_tags();
+                app.start_loading_actions();
+                let tx_tags = tx.clone();
+                let tx_actions = tx.clone();
+                let provider_tags = app.provider.clone();
+                let provider_actions = app.provider.clone();
+                let repo_name_tags = repo_name.clone();
+                let repo_name_actions = repo_name.clone();
+                tokio::spawn(async move {
+                    match provider_tags.list_tags(&repo_name_tags).await {
+                        Ok(tags) => tx_tags.send(AppMsg::TagsLoaded(tags)).ok(),
+                        Err(e) => tx_tags.send(AppMsg::TagsFailed(format!("Failed to load tags: {}", e))).ok(),
+                    };
+                });
+                tokio::spawn(async move {
+                    match provider_actions.list_actions(&repo_name_actions).await {
+                        Ok(actions) => tx_actions.send(AppMsg::ActionsLoaded(actions)).ok(),
+                        Err(e) => tx_actions.send(AppMsg::ActionsFailed(format!("Failed to load actions: {}", e))).ok(),
+                    };
+                });
+            }
+            last_repo_idx = app.selected_repo;
         }
 
         terminal.draw(|f| ui(f, app, search_mode))?;
@@ -285,11 +414,24 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                     crossterm::event::KeyCode::Backspace if search_mode => {
                         app.remove_from_search();
                     }
-                    crossterm::event::KeyCode::Up if !search_mode => app.previous_repo(),
-                    crossterm::event::KeyCode::Down if !search_mode => app.next_repo(),
-                    crossterm::event::KeyCode::Char('j') if !search_mode => app.next_action(),
-                    crossterm::event::KeyCode::Char('k') if !search_mode => app.previous_action(),
-                    crossterm::event::KeyCode::Char(' ') if !search_mode => app.execute_selected_action().await,
+                    // Navigation keys routed to focused panel
+                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if !search_mode => {
+                        match app.focused_panel {
+                            FocusedPanel::Repos => app.previous_repo(),
+                            FocusedPanel::Actions => app.previous_action(),
+                            FocusedPanel::Tags => app.previous_tag(),
+                        }
+                    }
+                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') if !search_mode => {
+                        match app.focused_panel {
+                            FocusedPanel::Repos => app.next_repo(),
+                            FocusedPanel::Actions => app.next_action(),
+                            FocusedPanel::Tags => app.next_tag(),
+                        }
+                    }
+                    crossterm::event::KeyCode::Char(' ') if !search_mode && app.focused_panel == FocusedPanel::Actions => app.execute_selected_action().await,
+                    crossterm::event::KeyCode::Tab => app.focus_next_panel(),
+                    crossterm::event::KeyCode::BackTab => app.focus_prev_panel(),
                     _ => {}
                 }
             }
@@ -297,12 +439,41 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
     }
 }
 
+// Add next_tag/previous_tag to AppState
+impl AppState {
+    fn next_tag(&mut self) {
+        if !self.tags.is_empty() {
+            self.selected_tag = (self.selected_tag + 1) % self.tags.len();
+            self.tags_list_state.select(Some(self.selected_tag));
+        }
+    }
+    fn previous_tag(&mut self) {
+        if !self.tags.is_empty() {
+            self.selected_tag = if self.selected_tag == 0 {
+                self.tags.len() - 1
+            } else {
+                self.selected_tag - 1
+            };
+            self.tags_list_state.select(Some(self.selected_tag));
+        }
+    }
+}
+
+#[derive(Debug)]
+enum AppMsg {
+    TagsLoaded(Vec<houston_api::Tag>),
+    TagsFailed(String),
+    ActionsLoaded(Vec<Action>),
+    ActionsFailed(String),
+}
+
 fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(30),
-            Constraint::Percentage(70),
+            Constraint::Percentage(40),
+            Constraint::Percentage(30),
         ].as_ref())
         .split(f.size());
 
@@ -323,13 +494,44 @@ fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
         "Repositories".to_string()
     };
 
+    // Highlight style for focused panel
+    let highlight = Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD);
+    let normal = Style::default();
+
     // Render repo list panel (left)
     let panel = RepoListPanel::new(&app.filtered_repos, app.selected_repo);
-    render_repo_list_panel_with_title(f, main_chunks[0], &panel, &mut app.repo_list_state, &repo_title);
+    let repo_loading = app.filtered_repos.is_empty() && (app.tags_loading || app.actions_loading);
+    render_repo_list_panel_with_title_and_style(
+        f,
+        main_chunks[0],
+        &panel,
+        &mut app.repo_list_state,
+        &repo_title,
+        if app.focused_panel == FocusedPanel::Repos { highlight } else { normal },
+        repo_loading,
+    );
 
-    // Render actions panel (right)
+    // Render actions panel (middle)
     let actions_panel = ActionsPanel::new(&app.actions, app.selected_action);
-    render_actions_panel(f, main_chunks[1], &actions_panel, &mut app.actions_list_state);
+    render_actions_panel(
+        f,
+        main_chunks[1],
+        &actions_panel,
+        &mut app.actions_list_state,
+        app.actions_loading,
+        if app.focused_panel == FocusedPanel::Actions { highlight } else { normal },
+    );
+
+    // Render tags panel (right)
+    let tags_panel = TagsPanel::new(&app.tags, app.selected_tag);
+    render_tags_panel(
+        f,
+        main_chunks[2],
+        &tags_panel,
+        &mut app.tags_list_state,
+        app.tags_loading,
+        if app.focused_panel == FocusedPanel::Tags { highlight } else { normal },
+    );
 
     // Render notification bar at the bottom
     if let Some(msg) = &app.notification {
@@ -341,22 +543,32 @@ fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
     }
 }
 
-fn render_repo_list_panel_with_title(
+fn render_repo_list_panel_with_title_and_style(
     f: &mut Frame,
     area: Rect,
     panel: &houston_ui::RepoListPanel,
     state: &mut ListState,
     title: &str,
+    style: Style,
+    loading: bool,
 ) {
-    let items: Vec<ListItem> = panel
-        .repos
-        .iter()
-        .map(|r| ListItem::new(r.as_str()))
-        .collect();
+    let items: Vec<ListItem> = if loading {
+        vec![ListItem::new("Loading...").style(Style::default().fg(Color::DarkGray))]
+    } else {
+        panel
+            .repos
+            .iter()
+            .map(|r| ListItem::new(r.as_str()))
+            .collect()
+    };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title))
+        .block(Block::default().borders(Borders::ALL).title(title).border_style(style))
         .highlight_symbol("▶ ")
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
-    state.select(Some(panel.selected));
+    if !panel.repos.is_empty() {
+        state.select(Some(panel.selected));
+    } else {
+        state.select(None);
+    }
     f.render_stateful_widget(list, area, state);
 }

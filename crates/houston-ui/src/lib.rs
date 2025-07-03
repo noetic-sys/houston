@@ -1,5 +1,5 @@
 use ratatui::{prelude::*, widgets::*};
-use houston_api::Action;
+use houston_api::{Action, Tag};
 
 pub struct RepoListPanel<'a> {
     pub repos: &'a [String],
@@ -47,9 +47,11 @@ pub fn render_actions_panel(
     area: Rect,
     panel: &ActionsPanel,
     state: &mut ListState,
+    loading: bool,
+    border_style: Style,
 ) {
-    let items: Vec<ListItem> = if panel.actions.is_empty() {
-        vec![ListItem::new("No actions found").style(Style::default().fg(Color::DarkGray))]
+    let items: Vec<ListItem> = if loading && panel.actions.is_empty() {
+        vec![ListItem::new("Loading...").style(Style::default().fg(Color::DarkGray))]
     } else {
         panel
             .actions
@@ -65,10 +67,50 @@ pub fn render_actions_panel(
             .collect()
     };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Actions"))
+        .block(Block::default().borders(Borders::ALL).title("Actions").border_style(border_style))
         .highlight_symbol("▶ ")
         .highlight_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
     if !panel.actions.is_empty() {
+        state.select(Some(panel.selected));
+    } else {
+        state.select(None);
+    }
+    f.render_stateful_widget(list, area, state);
+}
+
+pub struct TagsPanel<'a> {
+    pub tags: &'a [Tag],
+    pub selected: usize,
+}
+
+impl<'a> TagsPanel<'a> {
+    pub fn new(tags: &'a [Tag], selected: usize) -> Self {
+        Self { tags, selected }
+    }
+}
+
+pub fn render_tags_panel(
+    f: &mut Frame,
+    area: Rect,
+    panel: &TagsPanel,
+    state: &mut ListState,
+    loading: bool,
+    border_style: Style,
+) {
+    let items: Vec<ListItem> = if loading && panel.tags.is_empty() {
+        vec![ListItem::new("Loading...").style(Style::default().fg(Color::DarkGray))]
+    } else {
+        panel
+            .tags
+            .iter()
+            .map(|t| ListItem::new(t.name.as_str()))
+            .collect()
+    };
+    let list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title("Tags").border_style(border_style))
+        .highlight_symbol("▶ ")
+        .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+    if !panel.tags.is_empty() {
         state.select(Some(panel.selected));
     } else {
         state.select(None);
