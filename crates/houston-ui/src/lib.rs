@@ -1,4 +1,5 @@
 use ratatui::{prelude::*, widgets::*};
+use houston_api::Action;
 
 pub struct RepoListPanel<'a> {
     pub repos: &'a [String],
@@ -27,5 +28,50 @@ pub fn render_repo_list_panel(
         .highlight_symbol("▶ ")
         .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
     state.select(Some(panel.selected));
+    f.render_stateful_widget(list, area, state);
+}
+
+pub struct ActionsPanel<'a> {
+    pub actions: &'a [crate::Action],
+    pub selected: usize,
+}
+
+impl<'a> ActionsPanel<'a> {
+    pub fn new(actions: &'a [crate::Action], selected: usize) -> Self {
+        Self { actions, selected }
+    }
+}
+
+pub fn render_actions_panel(
+    f: &mut Frame,
+    area: Rect,
+    panel: &ActionsPanel,
+    state: &mut ListState,
+) {
+    let items: Vec<ListItem> = if panel.actions.is_empty() {
+        vec![ListItem::new("No actions found").style(Style::default().fg(Color::DarkGray))]
+    } else {
+        panel
+            .actions
+            .iter()
+            .map(|a| {
+                let text = if let Some(desc) = &a.description {
+                    format!("{} - {}", a.name, desc)
+                } else {
+                    a.name.clone()
+                };
+                ListItem::new(text)
+            })
+            .collect()
+    };
+    let list = List::new(items)
+        .block(Block::default().borders(Borders::ALL).title("Actions"))
+        .highlight_symbol("▶ ")
+        .highlight_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
+    if !panel.actions.is_empty() {
+        state.select(Some(panel.selected));
+    } else {
+        state.select(None);
+    }
     f.render_stateful_widget(list, area, state);
 }

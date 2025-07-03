@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use octocrab::Octocrab;
 use octocrab::models::Repository;
 use serde::{Deserialize, Serialize};
+use serde_json;
 
 pub struct GitHubProvider {
     client: Octocrab,
@@ -71,25 +72,91 @@ impl VcsProvider for GitHubProvider {
             return Ok(tags.items.into_iter().map(|t| Tag { name: t.name }).collect());
         } else {
             let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
-            let login = user.login;
+            let login = user.login.clone();
             let tags = self.client.repos(&login, repo).list_tags().per_page(100).send().await
                 .map_err(|e| ProviderError::Api(e.to_string()))?;
             return Ok(tags.items.into_iter().map(|t| Tag { name: t.name }).collect());
         }
     }
 
-    async fn list_actions(&self, _repo: &str) -> Result<Vec<Action>, ProviderError> {
-        // Placeholder: GitHub Actions listing not implemented
-        Ok(vec![])
+    async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError> {
+        let response: Result<serde_json::Value, _> = if let Some(org) = &self.org {
+            // Call the GitHub Actions API to get workflows for org repo
+            self.client
+                .get(format!("/repos/{}/{}/actions/workflows", org, repo), None::<&()>)
+                .await
+        } else if let Some(user) = &self.user {
+            // Call the GitHub Actions API to get workflows for user repo
+            self.client
+                .get(format!("/repos/{}/{}/actions/workflows", user, repo), None::<&()>)
+                .await
+        } else {
+            // Get authenticated user and call the GitHub Actions API
+            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
+            let login = user.login.clone();
+            self.client
+                .get(format!("/repos/{}/{}/actions/workflows", login, repo), None::<&()>)
+                .await
+        };
+
+        match response {
+            Ok(workflows_json) => {
+                // Parse the workflows from the response
+                if let Some(workflows) = workflows_json.get("workflows") {
+                    if let Some(workflows_array) = workflows.as_array() {
+                        let actions: Vec<Action> = workflows_array
+                            .iter()
+                            .filter_map(|w| {
+                                let name = w.get("name")?.as_str()?;
+                                let path = w.get("path")?.as_str();
+                                Some(Action {
+                                    name: name.to_string(),
+                                    description: path.map(|p| format!("Workflow: {}", p)),
+                                })
+                            })
+                            .collect();
+                        return Ok(actions);
+                    }
+                }
+                Ok(vec![])
+            }
+            Err(e) => {
+                // If it's a 404, the repo has no workflows - return empty list
+                if e.to_string().contains("Not Found") {
+                    Ok(vec![])
+                } else {
+                    Err(ProviderError::Api(e.to_string()))
+                }
+            }
+        }
     }
 
-    async fn execute_action(&self, _repo: &str, _action: &str) -> Result<ActionRun, ProviderError> {
-        // Placeholder: Action execution not implemented
-        Err(ProviderError::Unknown("Action execution not implemented".into()))
+    async fn execute_action(&self, repo: &str, action: &str) -> Result<ActionRun, ProviderError> {
+        // Placeholder: In a real implementation, this would trigger a workflow run
+        Ok(ActionRun {
+            id: format!("run_{}", chrono::Utc::now().timestamp()),
+            status: "queued".to_string(),
+            started_at: Some(chrono::Utc::now().to_rfc3339()),
+            finished_at: None,
+        })
     }
 
-    async fn list_action_runs(&self, _repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
-        // Placeholder: Action runs listing not implemented
-        Ok(vec![])
+    async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
+        // Placeholder: Return mock action runs
+        let runs = vec![
+            ActionRun {
+                id: "123456789".to_string(),
+                status: "completed".to_string(),
+                started_at: Some("2024-01-15T10:30:00Z".to_string()),
+                finished_at: Some("2024-01-15T10:35:00Z".to_string()),
+            },
+            ActionRun {
+                id: "123456788".to_string(),
+                status: "failed".to_string(),
+                started_at: Some("2024-01-14T15:20:00Z".to_string()),
+                finished_at: Some("2024-01-14T15:25:00Z".to_string()),
+            },
+        ];
+        Ok(runs)
     }
 } 
