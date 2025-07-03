@@ -38,10 +38,26 @@ impl AppState {
     }
 }
 
+fn get_github_token() -> Option<String> {
+    std::process::Command::new("gh")
+        .args(["auth", "token"])
+        .output()
+        .ok()
+        .and_then(|output| {
+            if output.status.success() {
+                String::from_utf8(output.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|token| token.trim().to_string())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // For now, use no token, no org, no user (will use authenticated user)
-    let provider = GitHubProvider::new(None, None, None);
+    // Try to get GitHub token from gh CLI, fall back to None
+    let token = get_github_token();
+    let provider = GitHubProvider::new(token, None, None);
     
     // Try to fetch repos, fall back to mock data if authentication fails
     let repos = match provider.list_repos().await {
