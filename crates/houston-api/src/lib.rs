@@ -1,14 +1,50 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use async_trait::async_trait;
+
+pub mod github;
+pub use github::GitHubProvider;
+
+#[derive(Debug, Clone)]
+pub struct Repo {
+    pub name: String,
+    pub description: Option<String>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Debug, Clone)]
+pub struct Tag {
+    pub name: String,
+}
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+#[derive(Debug, Clone)]
+pub struct Action {
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActionRun {
+    pub id: String,
+    pub status: String,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum ProviderError {
+    #[error("Network error: {0}")]
+    Network(String),
+    #[error("API error: {0}")]
+    Api(String),
+    #[error("Not found: {0}")]
+    NotFound(String),
+    #[error("Unknown error: {0}")]
+    Unknown(String),
+}
+
+#[async_trait]
+pub trait VcsProvider: Send + Sync {
+    async fn list_repos(&self) -> Result<Vec<Repo>, ProviderError>;
+    async fn list_tags(&self, repo: &str) -> Result<Vec<Tag>, ProviderError>;
+    async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError>;
+    async fn execute_action(&self, repo: &str, action: &str) -> Result<ActionRun, ProviderError>;
+    async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError>;
 }

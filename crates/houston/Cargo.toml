@@ -9,3 +9,8 @@ authors.workspace = true
 description.workspace = true
 
 [dependencies]
+houston-api = { path = "../houston-api" }
+houston-ui = { path = "../houston-ui" }
+tokio = { version = "1.37.0", features = ["full"] }
+crossterm = "0.29"
+ratatui = "0.29.0"

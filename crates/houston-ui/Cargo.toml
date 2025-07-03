@@ -9,3 +9,4 @@ authors.workspace = true
 description.workspace = true
 
 [dependencies]
+ratatui = "0.29.0"

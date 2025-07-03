@@ -1,11 +1,15 @@
 [package]
 name = "houston-api"
-edition.workspace = true
-license.workspace = true
-readme.workspace = true
-version.workspace = true
-repository.workspace = true
-authors.workspace = true
-description.workspace = true
+edition = "2021"
+license = "MIT"
+readme = "README.md"
+version = "0.1.9"
+repository = "https://www.github.com/kasandell/houston"
+authors = ["Kyle Sandell"]
+description = "Houston API crate"
 
 [dependencies]
+octocrab = "0.29.0"
+async-trait = "0.1"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
