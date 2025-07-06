@@ -55,6 +55,7 @@ enum DialogType {
         selected: usize,
         search_query: String,
         target_field_index: usize,
+        scroll_offset: usize,
     },
 }
 
@@ -429,6 +430,7 @@ impl AppState {
                 selected: 0,
                 search_query: String::new(),
                 target_field_index,
+                scroll_offset: 0,
             },
             open: true,
         });
@@ -527,7 +529,7 @@ impl AppState {
     
     fn dialog_search_char(&mut self, c: char) {
         if let Some(dialog) = &mut self.dialog {
-            if let DialogType::DropdownSelection { search_query, options, filtered_options, selected, .. } = &mut dialog.dialog_type {
+            if let DialogType::DropdownSelection { search_query, options, filtered_options, selected, scroll_offset, .. } = &mut dialog.dialog_type {
                 // Add character to search query
                 search_query.push(c);
                 
@@ -537,8 +539,9 @@ impl AppState {
                     .cloned()
                     .collect();
                 
-                // Reset selection to first filtered option
+                // Reset selection and scroll to first filtered option
                 *selected = 0;
+                *scroll_offset = 0;
             }
         }
     }
@@ -559,7 +562,7 @@ impl AppState {
                         }
                     }
                 }
-                DialogType::DropdownSelection { search_query, options, filtered_options, selected, .. } => {
+                DialogType::DropdownSelection { search_query, options, filtered_options, selected, scroll_offset, .. } => {
                     // Remove character from search query
                     search_query.pop();
                     
@@ -573,8 +576,9 @@ impl AppState {
                             .collect()
                     };
                     
-                    // Reset selection to first filtered option
+                    // Reset selection and scroll to first filtered option
                     *selected = 0;
+                    *scroll_offset = 0;
                 }
             }
         }
@@ -591,8 +595,8 @@ impl AppState {
                         self.dialog_prev_field();
                     }
                 }
-                DialogType::DropdownSelection { filtered_options, selected, .. } => {
-                    // Navigate through options in dropdown selection
+                DialogType::DropdownSelection { filtered_options, selected, scroll_offset, .. } => {
+                    // Navigate through options in dropdown selection with scrolling
                     if !filtered_options.is_empty() {
                         if direction > 0 {
                             *selected = (*selected + 1) % filtered_options.len();
@@ -602,6 +606,18 @@ impl AppState {
                             } else { 
                                 *selected - 1 
                             };
+                        }
+                        
+                        // Update scroll offset to keep selected item visible
+                        // Use a reasonable default that matches the UI calculation
+                        let visible_items = 15; // This should match the UI calculation
+                        
+                        if *selected < *scroll_offset {
+                            // Selected item is above visible area, scroll up
+                            *scroll_offset = *selected;
+                        } else if *selected >= *scroll_offset + visible_items {
+                            // Selected item is below visible area, scroll down
+                            *scroll_offset = (*selected + 1).saturating_sub(visible_items);
                         }
                     }
                 }
@@ -1205,7 +1221,7 @@ fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
                 f.render_widget(Clear, area); // Clear the area beneath the modal
                 f.render_widget(para, area);
             }
-            DialogType::DropdownSelection { field_name, filtered_options, selected, search_query, .. } => {
+            DialogType::DropdownSelection { field_name, filtered_options, selected, search_query, scroll_offset, .. } => {
                 let area = centered_rect(60, 70, f.size());
                 let mut lines = vec![];
                 
@@ -1230,8 +1246,25 @@ fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
                 }
                 lines.push(Line::from(""));
                 
-                // Options list
-                for (i, option) in filtered_options.iter().enumerate() {
+                // Calculate available space for options (total area minus header and footer)
+                let available_height = area.height.saturating_sub(8); // Leave space for title, search, help, borders
+                let max_visible_items = available_height as usize;
+                
+                // Show scroll indicators if needed
+                let total_items = filtered_options.len();
+                let has_more_above = *scroll_offset > 0;
+                let has_more_below = *scroll_offset + max_visible_items < total_items;
+                
+                if has_more_above {
+                    lines.push(Line::from(Span::styled(
+                        "  ↑ More options above ↑",
+                        Style::default().fg(Color::Cyan)
+                    )));
+                }
+                
+                // Options list (only show visible portion)
+                let _end_idx = (*scroll_offset + max_visible_items).min(total_items);
+                for (i, option) in filtered_options.iter().enumerate().skip(*scroll_offset).take(max_visible_items) {
                     let style = if i == *selected {
                         Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
                     } else {
@@ -1242,6 +1275,13 @@ fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
                     lines.push(Line::from(Span::styled(
                         format!("{}{}", prefix, option),
                         style
+                    )));
+                }
+                
+                if has_more_below {
+                    lines.push(Line::from(Span::styled(
+                        "  ↓ More options below ↓",
+                        Style::default().fg(Color::Cyan)
                     )));
                 }
                 
