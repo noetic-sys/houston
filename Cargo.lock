@@ -498,10 +498,11 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "houston"
-version = "0.1.9"
+version = "0.1.0"
 dependencies = [
  "crossterm 0.29.0",
  "houston-api",
+ "houston-core",
  "houston-ui",
  "ratatui",
  "tokio",
@@ -519,6 +520,18 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "houston-core"
+version = "0.1.0"
+dependencies = [
+ "crossterm 0.29.0",
+ "houston-api",
+ "houston-ui",
+ "ratatui",
+ "thiserror 1.0.69",
+ "tokio",
 ]
 
 [[package]]

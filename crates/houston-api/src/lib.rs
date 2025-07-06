@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use std::collections::HashMap;
 
 pub mod github;
 pub use github::GitHubProvider;
@@ -47,5 +48,6 @@ pub trait VcsProvider: Send + Sync {
     async fn list_tags(&self, repo: &str) -> Result<Vec<Tag>, ProviderError>;
     async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError>;
     async fn execute_action(&self, repo: &str, action: &str) -> Result<ActionRun, ProviderError>;
+    async fn execute_action_with_inputs(&self, repo: &str, action: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError>;
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError>;
 }

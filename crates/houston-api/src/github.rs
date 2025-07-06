@@ -5,6 +5,7 @@ use octocrab::models::Repository;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use base64::Engine;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct WorkflowInputField {
@@ -46,25 +47,31 @@ impl GitHubProvider {
             let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
             (user.login, repo.to_string())
         };
+
         // Get workflow metadata to find the path
         let workflow: serde_json::Value = self.client
             .get(format!("/repos/{}/{}/actions/workflows/{}", owner, repo_name, workflow_id), None::<&()>)
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
+
         let path = workflow.get("path").and_then(|v| v.as_str()).ok_or_else(|| ProviderError::Api("No workflow path found".to_string()))?;
+
         // Get the file content (YAML)
         let file: serde_json::Value = self.client
             .get(format!("/repos/{}/{}/contents/{}", owner, repo_name, path), None::<&()>)
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
+
         let content_b64 = file.get("content").and_then(|v| v.as_str()).ok_or_else(|| ProviderError::Api("No workflow content found".to_string()))?;
         let content = base64::engine::general_purpose::STANDARD
             .decode(content_b64.replace('\n', ""))
             .map_err(|e| ProviderError::Api(format!("Base64 decode error: {}", e)))?;
         let yaml_str = String::from_utf8(content).map_err(|e| ProviderError::Api(format!("UTF-8 decode error: {}", e)))?;
+
         // Parse YAML for inputs
         let yaml: serde_yaml::Value = serde_yaml::from_str(&yaml_str).map_err(|e| ProviderError::Api(format!("YAML parse error: {}", e)))?;
         let mut fields = Vec::new();
+
         if let Some(inputs) = yaml.get("on").and_then(|on| on.get("workflow_dispatch")).and_then(|wd| wd.get("inputs")) {
             if let Some(map) = inputs.as_mapping() {
                 for (k, v) in map {
@@ -76,6 +83,7 @@ impl GitHubProvider {
                 }
             }
         }
+
         Ok(fields)
     }
 }
@@ -85,6 +93,7 @@ impl VcsProvider for GitHubProvider {
     async fn list_repos(&self) -> Result<Vec<Repo>, ProviderError> {
         let mut repos = Vec::new();
         let mut page = 1u32;
+
         loop {
             let page_repos: Vec<Repository> = if let Some(org) = &self.org {
                 let resp = self.client.orgs(org).list_repos().per_page(100).page(page).send().await
@@ -99,9 +108,11 @@ impl VcsProvider for GitHubProvider {
                 self.client.get("/user/repos", Some(&params)).await
                     .map_err(|e| ProviderError::Api(e.to_string()))?
             };
+
             if page_repos.is_empty() {
                 break;
             }
+
             for r in page_repos {
                 repos.push(Repo {
                     name: r.name,
@@ -110,6 +121,7 @@ impl VcsProvider for GitHubProvider {
             }
             page += 1;
         }
+
         Ok(repos)
     }
 
@@ -186,13 +198,51 @@ impl VcsProvider for GitHubProvider {
     }
 
     async fn execute_action(&self, repo: &str, action: &str) -> Result<ActionRun, ProviderError> {
-        // Placeholder: In a real implementation, this would trigger a workflow run
-        Ok(ActionRun {
-            id: format!("run_{}", chrono::Utc::now().timestamp()),
-            status: "queued".to_string(),
-            started_at: Some(chrono::Utc::now().to_rfc3339()),
-            finished_at: None,
-        })
+        // Execute workflow without inputs
+        self.execute_action_with_inputs(repo, action, &HashMap::new()).await
+    }
+
+    async fn execute_action_with_inputs(&self, repo: &str, action: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError> {
+        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
+            (org.clone(), repo.to_string())
+        } else if let Some(user) = &self.user {
+            (user.clone(), repo.to_string())
+        } else {
+            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
+            (user.login, repo.to_string())
+        };
+
+        // Prepare the payload for workflow dispatch
+        let mut payload = serde_json::json!({
+            "ref": "main", // Default to main branch
+        });
+
+        // Add inputs if provided
+        if !inputs.is_empty() {
+            payload["inputs"] = serde_json::Value::Object(
+                inputs.iter()
+                    .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                    .collect()
+            );
+        }
+
+        // Trigger workflow dispatch
+        let response: Result<serde_json::Value, _> = self.client
+            .post(format!("/repos/{}/{}/actions/workflows/{}/dispatches", owner, repo_name, action), Some(&payload))
+            .await;
+
+        match response {
+            Ok(_) => {
+                // GitHub API returns 204 No Content on success, so we create a mock ActionRun
+                Ok(ActionRun {
+                    id: format!("run_{}", chrono::Utc::now().timestamp()),
+                    status: "queued".to_string(),
+                    started_at: Some(chrono::Utc::now().to_rfc3339()),
+                    finished_at: None,
+                })
+            }
+            Err(e) => Err(ProviderError::Api(e.to_string()))
+        }
     }
 
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError> {

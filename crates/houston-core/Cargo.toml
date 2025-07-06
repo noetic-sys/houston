@@ -1,12 +1,12 @@
 [package]
-name = "houston"
+name = "houston-core"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 houston-api = { path = "../houston-api" }
 houston-ui = { path = "../houston-ui" }
-houston-core = { path = "../houston-core" }
 tokio = { version = "1.37.0", features = ["full"] }
 crossterm = "0.29"
 ratatui = "0.29.0"
+thiserror = "1.0" 
