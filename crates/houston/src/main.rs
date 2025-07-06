@@ -1,6 +1,9 @@
 use houston_api::{GitHubProvider, VcsProvider, Action};
 use houston_ui::{RepoListPanel, render_repo_list_panel, ActionsPanel, render_actions_panel, TagsPanel, render_tags_panel};
-use ratatui::{prelude::*, widgets::{ListState, Paragraph, Block, Borders, ListItem, List}};
+use ratatui::{prelude::*, widgets::{ListState, Paragraph, Block, Borders, ListItem, List, Clear, Wrap}};
+use ratatui::text::{Span, Line};
+// Remove: use ratatui::widgets::{Span, Spans};
+// Span and Spans should be available via ratatui::prelude::*
 use std::io;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -10,6 +13,24 @@ enum FocusedPanel {
     Repos,
     Actions,
     Tags,
+}
+
+#[derive(Debug, Clone)]
+struct WorkflowInputField {
+    name: String,
+    value: String,
+    required: bool,
+    description: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DialogState {
+    fields: Vec<WorkflowInputField>,
+    selected: usize,
+    open: bool,
+    repo_name: String,
+    action_name: String,
+    is_confirmation: bool,
 }
 
 struct AppState {
@@ -33,6 +54,7 @@ struct AppState {
     tags_loading: bool,
     actions_loading: bool,
     focused_panel: FocusedPanel,
+    dialog: Option<DialogState>,
 }
 
 impl AppState {
@@ -64,6 +86,7 @@ impl AppState {
             tags_loading: false,
             actions_loading: false,
             focused_panel: FocusedPanel::Repos,
+            dialog: None,
         }
     }
 
@@ -216,14 +239,28 @@ impl AppState {
 
     async fn execute_selected_action(&mut self) {
         if !self.filtered_repos.is_empty() && !self.actions.is_empty() {
-            let repo_name = &self.filtered_repos[self.selected_repo];
-            let action_name = &self.actions[self.selected_action].name;
-            match self.provider.execute_action(repo_name, action_name).await {
-                Ok(run) => {
-                    self.set_notification(format!("Triggered action {} on {}: {}", action_name, repo_name, run.id));
+            let repo_name = self.filtered_repos[self.selected_repo].clone();
+            let action = self.actions[self.selected_action].clone();
+            
+            // First, try to fetch workflow inputs
+            match self.provider.fetch_workflow_inputs(&repo_name, &action.workflow_id).await {
+                Ok(inputs) => {
+                    if inputs.is_empty() {
+                        // No inputs required, show confirmation dialog
+                        self.open_dialog(vec![]);
+                    } else {
+                        // Convert API inputs to UI inputs and open dialog
+                        let ui_inputs: Vec<WorkflowInputField> = inputs.into_iter().map(|input| WorkflowInputField {
+                            name: input.name,
+                            value: input.default.unwrap_or_default(),
+                            required: input.required,
+                            description: input.description,
+                        }).collect();
+                        self.open_dialog(ui_inputs);
+                    }
                 }
                 Err(e) => {
-                    self.set_notification(format!("Failed to execute action {} on {}: {}", action_name, repo_name, e));
+                    self.set_notification(format!("Failed to fetch workflow inputs for {}: {}", action.name, e));
                 }
             }
         }
@@ -281,6 +318,91 @@ impl AppState {
             FocusedPanel::Actions => FocusedPanel::Repos,
             FocusedPanel::Tags => FocusedPanel::Actions,
         };
+    }
+
+    fn open_dialog(&mut self, fields: Vec<WorkflowInputField>) {
+        let repo_name = self.filtered_repos.get(self.selected_repo).cloned().unwrap_or_default();
+        let action_name = self.actions.get(self.selected_action).map(|a| a.name.clone()).unwrap_or_default();
+        let is_confirmation = fields.is_empty();
+        
+        self.dialog = Some(DialogState {
+            fields,
+            selected: 0,
+            open: true,
+            repo_name,
+            action_name,
+            is_confirmation,
+        });
+    }
+    
+    fn open_confirmation_dialog(&mut self, repo_name: String, action_name: String) {
+        self.dialog = Some(DialogState {
+            fields: vec![],
+            selected: 0,
+            open: true,
+            repo_name,
+            action_name,
+            is_confirmation: true,
+        });
+    }
+    fn close_dialog(&mut self) {
+        self.dialog = None;
+    }
+    fn dialog_next_field(&mut self) {
+        if let Some(dialog) = &mut self.dialog {
+            if !dialog.fields.is_empty() {
+                dialog.selected = (dialog.selected + 1) % dialog.fields.len();
+            }
+        }
+    }
+    fn dialog_prev_field(&mut self) {
+        if let Some(dialog) = &mut self.dialog {
+            if !dialog.fields.is_empty() {
+                dialog.selected = if dialog.selected == 0 {
+                    dialog.fields.len() - 1
+                } else {
+                    dialog.selected - 1
+                };
+            }
+        }
+    }
+    fn dialog_input_char(&mut self, c: char) {
+        if let Some(dialog) = &mut self.dialog {
+            if let Some(field) = dialog.fields.get_mut(dialog.selected) {
+                field.value.push(c);
+            }
+        }
+    }
+    fn dialog_backspace(&mut self) {
+        if let Some(dialog) = &mut self.dialog {
+            if let Some(field) = dialog.fields.get_mut(dialog.selected) {
+                field.value.pop();
+            }
+        }
+    }
+    
+    async fn submit_dialog(&mut self) {
+        if let Some(dialog) = &self.dialog {
+            let repo_name = dialog.repo_name.clone();
+            let action_name = dialog.action_name.clone();
+            
+            if dialog.is_confirmation {
+                // Execute action without inputs
+                match self.provider.execute_action(&repo_name, &action_name).await {
+                    Ok(run) => {
+                        self.set_notification(format!("Triggered action {} on {}: {}", action_name, repo_name, run.id));
+                    }
+                    Err(e) => {
+                        self.set_notification(format!("Failed to execute action {} on {}: {}", action_name, repo_name, e));
+                    }
+                }
+            } else {
+                // Execute action with inputs
+                // TODO: Implement input submission and action execution with inputs
+                self.set_notification(format!("Executing {} on {} with inputs", action_name, repo_name));
+            }
+        }
+        self.close_dialog();
     }
 }
 
@@ -347,7 +469,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> io::Result<()> {
     let mut search_mode = false;
-    let mut last_repo_idx = app.selected_repo;
+    let mut last_repo_name: Option<String> = app.filtered_repos.get(app.selected_repo).cloned();
     let (tx, mut rx) = mpsc::unbounded_channel::<AppMsg>();
 
     loop {
@@ -364,9 +486,9 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
         }
 
         // Always load actions/tags when repo changes
-        if app.selected_repo != last_repo_idx {
-            let repo_name = app.filtered_repos.get(app.selected_repo).cloned();
-            if let Some(repo_name) = repo_name {
+        let current_repo_name = app.filtered_repos.get(app.selected_repo).cloned();
+        if current_repo_name != last_repo_name {
+            if let Some(repo_name) = &current_repo_name {
                 app.start_loading_tags();
                 app.start_loading_actions();
                 let tx_tags = tx.clone();
@@ -388,7 +510,7 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                     };
                 });
             }
-            last_repo_idx = app.selected_repo;
+            last_repo_name = current_repo_name;
         }
 
         terminal.draw(|f| ui(f, app, search_mode))?;
@@ -400,6 +522,9 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                     crossterm::event::KeyCode::Char('/') => {
                         search_mode = true;
                         app.clear_search();
+                    }
+                    crossterm::event::KeyCode::Esc if app.dialog.is_some() => {
+                        app.close_dialog();
                     }
                     crossterm::event::KeyCode::Esc => {
                         search_mode = false;
@@ -414,24 +539,40 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                     crossterm::event::KeyCode::Backspace if search_mode => {
                         app.remove_from_search();
                     }
-                    // Navigation keys routed to focused panel
-                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if !search_mode => {
+                    // Dialog input handling
+                    crossterm::event::KeyCode::Tab if app.dialog.is_some() => {
+                        app.dialog_next_field();
+                    }
+                    crossterm::event::KeyCode::BackTab if app.dialog.is_some() => {
+                        app.dialog_prev_field();
+                    }
+                    crossterm::event::KeyCode::Char(c) if app.dialog.is_some() => {
+                        app.dialog_input_char(c);
+                    }
+                    crossterm::event::KeyCode::Backspace if app.dialog.is_some() => {
+                        app.dialog_backspace();
+                    }
+                    crossterm::event::KeyCode::Enter if app.dialog.is_some() => {
+                        app.submit_dialog().await;
+                    }
+                    // Navigation keys routed to focused panel (only when no dialog is open)
+                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if !search_mode && app.dialog.is_none() => {
                         match app.focused_panel {
                             FocusedPanel::Repos => app.previous_repo(),
                             FocusedPanel::Actions => app.previous_action(),
                             FocusedPanel::Tags => app.previous_tag(),
                         }
                     }
-                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') if !search_mode => {
+                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') if !search_mode && app.dialog.is_none() => {
                         match app.focused_panel {
                             FocusedPanel::Repos => app.next_repo(),
                             FocusedPanel::Actions => app.next_action(),
                             FocusedPanel::Tags => app.next_tag(),
                         }
                     }
-                    crossterm::event::KeyCode::Char(' ') if !search_mode && app.focused_panel == FocusedPanel::Actions => app.execute_selected_action().await,
-                    crossterm::event::KeyCode::Tab => app.focus_next_panel(),
-                    crossterm::event::KeyCode::BackTab => app.focus_prev_panel(),
+                    crossterm::event::KeyCode::Char(' ') if !search_mode && app.focused_panel == FocusedPanel::Actions && app.dialog.is_none() => app.execute_selected_action().await,
+                    crossterm::event::KeyCode::Tab if app.dialog.is_none() => app.focus_next_panel(),
+                    crossterm::event::KeyCode::BackTab if app.dialog.is_none() => app.focus_prev_panel(),
                     _ => {}
                 }
             }
@@ -541,6 +682,58 @@ fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
             .style(Style::default().fg(Color::White).bg(Color::Red));
         f.render_widget(block, outer_chunks[1]);
     }
+
+    // Render dialog modal if open
+    if let Some(dialog) = &app.dialog {
+        let area = centered_rect(60, 40, f.size());
+        let mut lines = vec![];
+        
+        if dialog.is_confirmation {
+            // Confirmation dialog
+            lines.push(Line::from(Span::styled(
+                format!("Are you sure you want to run '{}' on '{}'?", dialog.action_name, dialog.repo_name),
+                Style::default().fg(Color::White)
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Press Enter to confirm, Escape to cancel",
+                Style::default().fg(Color::Gray)
+            )));
+        } else {
+            // Input dialog
+            for (i, field) in dialog.fields.iter().enumerate() {
+                let mut line = format!("{}: {}", field.name, field.value);
+                if let Some(desc) = &field.description {
+                    line.push_str(&format!(" ({})", desc));
+                }
+                if field.required {
+                    line.push_str(" *");
+                }
+                let style = if i == dialog.selected {
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                lines.push(Line::from(Span::styled(line, style)));
+            }
+        }
+        
+        let title = if dialog.is_confirmation {
+            "Confirm Action"
+        } else {
+            "Workflow Inputs"
+        };
+        
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow));
+        let para = Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false });
+        f.render_widget(Clear, area); // Clear the area beneath the modal
+        f.render_widget(para, area);
+    }
 }
 
 fn render_repo_list_panel_with_title_and_style(
@@ -571,4 +764,25 @@ fn render_repo_list_panel_with_title_and_style(
         state.select(None);
     }
     f.render_stateful_widget(list, area, state);
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ].as_ref())
+        .split(r);
+    let vertical = popup_layout[1];
+    let popup_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ].as_ref())
+        .split(vertical);
+    popup_layout[1]
 }

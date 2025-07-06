@@ -4,6 +4,15 @@ use octocrab::Octocrab;
 use octocrab::models::Repository;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use base64::Engine;
+
+#[derive(Debug, Clone)]
+pub struct WorkflowInputField {
+    pub name: String,
+    pub required: bool,
+    pub description: Option<String>,
+    pub default: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct GitHubProvider {
@@ -26,6 +35,48 @@ impl GitHubProvider {
             Octocrab::builder().build().unwrap()
         };
         Self { client, org, user }
+    }
+
+    pub async fn fetch_workflow_inputs(&self, repo: &str, workflow_id: &str) -> Result<Vec<WorkflowInputField>, ProviderError> {
+        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
+            (org.clone(), repo.to_string())
+        } else if let Some(user) = &self.user {
+            (user.clone(), repo.to_string())
+        } else {
+            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
+            (user.login, repo.to_string())
+        };
+        // Get workflow metadata to find the path
+        let workflow: serde_json::Value = self.client
+            .get(format!("/repos/{}/{}/actions/workflows/{}", owner, repo_name, workflow_id), None::<&()>)
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+        let path = workflow.get("path").and_then(|v| v.as_str()).ok_or_else(|| ProviderError::Api("No workflow path found".to_string()))?;
+        // Get the file content (YAML)
+        let file: serde_json::Value = self.client
+            .get(format!("/repos/{}/{}/contents/{}", owner, repo_name, path), None::<&()>)
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+        let content_b64 = file.get("content").and_then(|v| v.as_str()).ok_or_else(|| ProviderError::Api("No workflow content found".to_string()))?;
+        let content = base64::engine::general_purpose::STANDARD
+            .decode(content_b64.replace('\n', ""))
+            .map_err(|e| ProviderError::Api(format!("Base64 decode error: {}", e)))?;
+        let yaml_str = String::from_utf8(content).map_err(|e| ProviderError::Api(format!("UTF-8 decode error: {}", e)))?;
+        // Parse YAML for inputs
+        let yaml: serde_yaml::Value = serde_yaml::from_str(&yaml_str).map_err(|e| ProviderError::Api(format!("YAML parse error: {}", e)))?;
+        let mut fields = Vec::new();
+        if let Some(inputs) = yaml.get("on").and_then(|on| on.get("workflow_dispatch")).and_then(|wd| wd.get("inputs")) {
+            if let Some(map) = inputs.as_mapping() {
+                for (k, v) in map {
+                    let name = k.as_str().unwrap_or("").to_string();
+                    let required = v.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
+                    let description = v.get("description").and_then(|d| d.as_str()).map(|s| s.to_string());
+                    let default = v.get("default").and_then(|d| d.as_str()).map(|s| s.to_string());
+                    fields.push(WorkflowInputField { name, required, description, default });
+                }
+            }
+        }
+        Ok(fields)
     }
 }
 
@@ -110,9 +161,11 @@ impl VcsProvider for GitHubProvider {
                             .filter_map(|w| {
                                 let name = w.get("name")?.as_str()?;
                                 let path = w.get("path")?.as_str();
+                                let id = w.get("id")?.as_u64()?.to_string();
                                 Some(Action {
                                     name: name.to_string(),
                                     description: path.map(|p| format!("Workflow: {}", p)),
+                                    workflow_id: id,
                                 })
                             })
                             .collect();

@@ -18,6 +18,7 @@ pub struct Tag {
 pub struct Action {
     pub name: String,
     pub description: Option<String>,
+    pub workflow_id: String,
 }
 
 #[derive(Debug, Clone)]
