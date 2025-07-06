@@ -13,6 +13,8 @@ pub struct WorkflowInputField {
     pub required: bool,
     pub description: Option<String>,
     pub default: Option<String>,
+    pub input_type: Option<String>, // "string", "number", "boolean", "choice", "environment"
+    pub options: Option<Vec<String>>, // For choice type inputs
 }
 
 #[derive(Clone)]
@@ -79,7 +81,15 @@ impl GitHubProvider {
                     let required = v.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
                     let description = v.get("description").and_then(|d| d.as_str()).map(|s| s.to_string());
                     let default = v.get("default").and_then(|d| d.as_str()).map(|s| s.to_string());
-                    fields.push(WorkflowInputField { name, required, description, default });
+                    let input_type = v.get("type").and_then(|t| t.as_str()).map(|s| s.to_string());
+                    let options = v.get("options").and_then(|o| {
+                        if let serde_yaml::Value::Sequence(seq) = o {
+                            Some(seq.into_iter().map(|s| s.as_str().unwrap_or("").to_string()).collect())
+                        } else {
+                            None
+                        }
+                    });
+                    fields.push(WorkflowInputField { name, required, description, default, input_type, options });
                 }
             }
         }
@@ -245,7 +255,7 @@ impl VcsProvider for GitHubProvider {
         }
     }
 
-    async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
+    async fn list_action_runs(&self, _repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
         // Placeholder: Return mock action runs
         let runs = vec![
             ActionRun {

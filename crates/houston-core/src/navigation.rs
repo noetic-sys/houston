@@ -186,7 +186,7 @@ impl AppState {
                     if let DialogFocus::Field(idx) = *focus {
                         if let Some(field) = fields.get_mut(idx) {
                             match &field.input_type {
-                                InputType::Text | InputType::Environment => {
+                                InputType::Text => {
                                     field.value.push(c);
                                 }
                                 InputType::Dropdown { .. } | InputType::Choice { .. } => {
@@ -229,7 +229,7 @@ impl AppState {
                     if let DialogFocus::Field(idx) = *focus {
                         if let Some(field) = fields.get_mut(idx) {
                             match &field.input_type {
-                                InputType::Text | InputType::Environment => {
+                                InputType::Text => {
                                     field.value.pop();
                                 }
                                 InputType::Dropdown { .. } | InputType::Choice { .. } => {

@@ -15,7 +15,6 @@ pub enum FocusedPanel {
 pub enum InputType {
     Text,
     Dropdown { options: Vec<String>, selected: usize },
-    Environment,
     Choice { options: Vec<String>, selected: usize },
 }
 
@@ -247,7 +246,7 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
                     
                     // Field value display
                     let value_display = match &field.input_type {
-                        InputType::Text | InputType::Environment => {
+                        InputType::Text => {
                             if is_focused {
                                 format!("▶ {}", field.value)
                             } else {
@@ -431,10 +430,48 @@ pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     popup_layout[1]
 }
 
-pub fn determine_input_type(field_name: &str, available_tags: &[String]) -> InputType {
-    let field_lower = field_name.to_lowercase();
+pub fn determine_input_type(field: &WorkflowInputField, available_tags: &[String]) -> InputType {
+    // Use the actual type from the YAML if available
+    if let Some(input_type) = &field.input_type {
+        match input_type.as_str() {
+            "boolean" => {
+                return InputType::Choice {
+                    options: vec!["true".to_string(), "false".to_string()],
+                    selected: 0,
+                };
+            }
+            "choice" => {
+                if let Some(options) = &field.options {
+                    return InputType::Choice {
+                        options: options.clone(),
+                        selected: 0,
+                    };
+                }
+            }
+            "environment" => {
+                return InputType::Choice {
+                    options: vec![
+                        "production".to_string(),
+                        "staging".to_string(),
+                        "development".to_string(),
+                        "test".to_string(),
+                    ],
+                    selected: 0,
+                };
+            }
+            "number" | "string" => {
+                // Fall through to check for version/tag-related fields
+            }
+            _ => {
+                // Unknown type, fall through to heuristics
+            }
+        }
+    }
     
-    // Check for version-related fields
+    // If no explicit type, use heuristics for common patterns
+    let field_lower = field.name.to_lowercase();
+    
+    // Check for version-related fields that might use tags
     if field_lower.contains("version") || field_lower.contains("tag") || field_lower.contains("ref") {
         if !available_tags.is_empty() {
             return InputType::Dropdown {
@@ -444,34 +481,13 @@ pub fn determine_input_type(field_name: &str, available_tags: &[String]) -> Inpu
         }
     }
     
-    // Check for environment fields
-    if field_lower.contains("environment") || field_lower.contains("env") {
-        return InputType::Choice {
-            options: vec![
-                "production".to_string(),
-                "staging".to_string(),
-                "development".to_string(),
-                "test".to_string(),
-            ],
-            selected: 0,
-        };
-    }
-    
-    // Check for boolean-like fields
-    if field_lower.contains("enable") || field_lower.contains("disable") || field_lower.contains("debug") {
-        return InputType::Choice {
-            options: vec!["true".to_string(), "false".to_string()],
-            selected: 0,
-        };
-    }
-    
     // Default to text input
     InputType::Text
 }
 
 // Convert API WorkflowInputField to UI WorkflowInputField
 pub fn convert_workflow_input_field(input: WorkflowInputField, available_tags: &[String]) -> UIWorkflowInputField {
-    let input_type = determine_input_type(&input.name, available_tags);
+    let input_type = determine_input_type(&input, available_tags);
     let default_value = input.default.unwrap_or_default();
     
     let (final_input_type, final_value) = match input_type {
@@ -497,5 +513,128 @@ pub fn convert_workflow_input_field(input: WorkflowInputField, available_tags: &
         required: input.required,
         description: input.description,
         input_type: final_input_type,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use houston_api::github::WorkflowInputField;
+
+    #[test]
+    fn test_determine_input_type_boolean() {
+        let field = WorkflowInputField {
+            name: "debug".to_string(),
+            required: false,
+            description: Some("Enable debug mode".to_string()),
+            default: Some("false".to_string()),
+            input_type: Some("boolean".to_string()),
+            options: None,
+        };
+        
+        let input_type = determine_input_type(&field, &[]);
+        match input_type {
+            InputType::Choice { options, .. } => {
+                assert_eq!(options, vec!["true", "false"]);
+            }
+            _ => panic!("Expected Choice type for boolean field"),
+        }
+    }
+
+    #[test]
+    fn test_determine_input_type_choice() {
+        let field = WorkflowInputField {
+            name: "environment".to_string(),
+            required: true,
+            description: Some("Deploy environment".to_string()),
+            default: Some("staging".to_string()),
+            input_type: Some("choice".to_string()),
+            options: Some(vec!["dev".to_string(), "staging".to_string(), "prod".to_string()]),
+        };
+        
+        let input_type = determine_input_type(&field, &[]);
+        match input_type {
+            InputType::Choice { options, .. } => {
+                assert_eq!(options, vec!["dev", "staging", "prod"]);
+            }
+            _ => panic!("Expected Choice type for choice field"),
+        }
+    }
+
+    #[test]
+    fn test_determine_input_type_environment() {
+        let field = WorkflowInputField {
+            name: "env".to_string(),
+            required: true,
+            description: Some("Environment to deploy to".to_string()),
+            default: None,
+            input_type: Some("environment".to_string()),
+            options: None,
+        };
+        
+        let input_type = determine_input_type(&field, &[]);
+        match input_type {
+            InputType::Choice { options, .. } => {
+                assert_eq!(options, vec!["production", "staging", "development", "test"]);
+            }
+            _ => panic!("Expected Choice type for environment field"),
+        }
+    }
+
+    #[test]
+    fn test_determine_input_type_version_with_tags() {
+        let field = WorkflowInputField {
+            name: "version".to_string(),
+            required: true,
+            description: Some("Version to deploy".to_string()),
+            default: None,
+            input_type: Some("string".to_string()),
+            options: None,
+        };
+        
+        let tags = vec!["v1.0.0".to_string(), "v1.1.0".to_string(), "v2.0.0".to_string()];
+        let input_type = determine_input_type(&field, &tags);
+        match input_type {
+            InputType::Dropdown { options, .. } => {
+                assert_eq!(options, tags);
+            }
+            _ => panic!("Expected Dropdown type for version field with tags"),
+        }
+    }
+
+    #[test]
+    fn test_determine_input_type_text_fallback() {
+        let field = WorkflowInputField {
+            name: "message".to_string(),
+            required: false,
+            description: Some("Commit message".to_string()),
+            default: None,
+            input_type: Some("string".to_string()),
+            options: None,
+        };
+        
+        let input_type = determine_input_type(&field, &[]);
+        match input_type {
+            InputType::Text => {},
+            _ => panic!("Expected Text type for generic string field"),
+        }
+    }
+
+    #[test]
+    fn test_determine_input_type_legacy_fallback() {
+        let field = WorkflowInputField {
+            name: "enable_feature".to_string(),
+            required: false,
+            description: None,
+            default: None,
+            input_type: None, // No type specified in YAML
+            options: None,
+        };
+        
+        let input_type = determine_input_type(&field, &[]);
+        match input_type {
+            InputType::Text => {},
+            _ => panic!("Expected Text type for field without type specification"),
+        }
     }
 }
