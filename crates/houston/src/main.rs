@@ -16,21 +16,52 @@ enum FocusedPanel {
 }
 
 #[derive(Debug, Clone)]
+enum InputType {
+    Text,
+    Dropdown { options: Vec<String>, selected: usize },
+    Environment,
+    Choice { options: Vec<String>, selected: usize },
+}
+
+#[derive(Debug, Clone)]
 struct WorkflowInputField {
     name: String,
     value: String,
     required: bool,
     description: Option<String>,
+    input_type: InputType,
+}
+
+#[derive(Debug, Clone)]
+enum DialogFocus {
+    Field(usize),
+    ConfirmButton,
+    CancelButton,
+}
+
+#[derive(Debug, Clone)]
+enum DialogType {
+    Input {
+        fields: Vec<WorkflowInputField>,
+        focus: DialogFocus,
+        repo_name: String,
+        action_name: String,
+        is_confirmation: bool,
+    },
+    DropdownSelection {
+        field_name: String,
+        options: Vec<String>,
+        filtered_options: Vec<String>,
+        selected: usize,
+        search_query: String,
+        target_field_index: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
 struct DialogState {
-    fields: Vec<WorkflowInputField>,
-    selected: usize,
+    dialog_type: DialogType,
     open: bool,
-    repo_name: String,
-    action_name: String,
-    is_confirmation: bool,
 }
 
 struct AppState {
@@ -55,6 +86,7 @@ struct AppState {
     actions_loading: bool,
     focused_panel: FocusedPanel,
     dialog: Option<DialogState>,
+    previous_dialog: Option<DialogState>,
 }
 
 impl AppState {
@@ -87,6 +119,7 @@ impl AppState {
             actions_loading: false,
             focused_panel: FocusedPanel::Repos,
             dialog: None,
+            previous_dialog: None,
         }
     }
 
@@ -250,11 +283,35 @@ impl AppState {
                         self.open_dialog(vec![]);
                     } else {
                         // Convert API inputs to UI inputs and open dialog
-                        let ui_inputs: Vec<WorkflowInputField> = inputs.into_iter().map(|input| WorkflowInputField {
-                            name: input.name,
-                            value: input.default.unwrap_or_default(),
-                            required: input.required,
-                            description: input.description,
+                        let ui_inputs: Vec<WorkflowInputField> = inputs.into_iter().map(|input| {
+                            let tag_names: Vec<String> = self.tags.iter().map(|tag| tag.name.clone()).collect();
+                            let input_type = determine_input_type(&input.name, &tag_names);
+                            let default_value = input.default.unwrap_or_default();
+                            
+                            let (final_input_type, final_value) = match input_type {
+                                InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
+                                    let selected = if !default_value.is_empty() {
+                                        options.iter().position(|opt| opt == &default_value).unwrap_or(0)
+                                    } else {
+                                        0
+                                    };
+                                    let value = if !options.is_empty() {
+                                        options[selected].clone()
+                                    } else {
+                                        default_value
+                                    };
+                                    (InputType::Dropdown { options, selected }, value)
+                                }
+                                _ => (input_type, default_value)
+                            };
+                            
+                            WorkflowInputField {
+                                name: input.name,
+                                value: final_value,
+                                required: input.required,
+                                description: input.description,
+                                input_type: final_input_type,
+                            }
                         }).collect();
                         self.open_dialog(ui_inputs);
                     }
@@ -325,84 +382,389 @@ impl AppState {
         let action_name = self.actions.get(self.selected_action).map(|a| a.name.clone()).unwrap_or_default();
         let is_confirmation = fields.is_empty();
         
+        let initial_focus = if is_confirmation {
+            DialogFocus::ConfirmButton
+        } else if !fields.is_empty() {
+            DialogFocus::Field(0)
+        } else {
+            DialogFocus::ConfirmButton
+        };
+        
         self.dialog = Some(DialogState {
-            fields,
-            selected: 0,
+            dialog_type: DialogType::Input {
+                fields,
+                focus: initial_focus,
+                repo_name,
+                action_name,
+                is_confirmation,
+            },
             open: true,
-            repo_name,
-            action_name,
-            is_confirmation,
         });
     }
     
     fn open_confirmation_dialog(&mut self, repo_name: String, action_name: String) {
         self.dialog = Some(DialogState {
-            fields: vec![],
-            selected: 0,
+            dialog_type: DialogType::Input {
+                fields: vec![],
+                focus: DialogFocus::ConfirmButton,
+                repo_name,
+                action_name,
+                is_confirmation: true,
+            },
             open: true,
-            repo_name,
-            action_name,
-            is_confirmation: true,
+        });
+    }
+    
+    fn open_dropdown_selection(&mut self, field_name: String, options: Vec<String>, target_field_index: usize) {
+        let filtered_options = options.clone();
+        
+        // Store the current dialog as previous
+        self.previous_dialog = self.dialog.take();
+        
+        self.dialog = Some(DialogState {
+            dialog_type: DialogType::DropdownSelection {
+                field_name,
+                options,
+                filtered_options,
+                selected: 0,
+                search_query: String::new(),
+                target_field_index,
+            },
+            open: true,
         });
     }
     fn close_dialog(&mut self) {
         self.dialog = None;
+        self.previous_dialog = None;
+    }
+    
+    fn cancel_dropdown_selection(&mut self) {
+        if let Some(previous) = self.previous_dialog.take() {
+            self.dialog = Some(previous);
+        } else {
+            self.close_dialog();
+        }
     }
     fn dialog_next_field(&mut self) {
         if let Some(dialog) = &mut self.dialog {
-            if !dialog.fields.is_empty() {
-                dialog.selected = (dialog.selected + 1) % dialog.fields.len();
+            match &mut dialog.dialog_type {
+                DialogType::Input { fields, focus, .. } => {
+                    *focus = match *focus {
+                        DialogFocus::Field(idx) => {
+                            if idx + 1 < fields.len() {
+                                DialogFocus::Field(idx + 1)
+                            } else {
+                                DialogFocus::ConfirmButton
+                            }
+                        }
+                        DialogFocus::ConfirmButton => DialogFocus::CancelButton,
+                        DialogFocus::CancelButton => {
+                            if !fields.is_empty() {
+                                DialogFocus::Field(0)
+                            } else {
+                                DialogFocus::ConfirmButton
+                            }
+                        }
+                    };
+                }
+                DialogType::DropdownSelection { .. } => {
+                    // Tab does nothing in dropdown selection mode
+                }
             }
         }
     }
     fn dialog_prev_field(&mut self) {
         if let Some(dialog) = &mut self.dialog {
-            if !dialog.fields.is_empty() {
-                dialog.selected = if dialog.selected == 0 {
-                    dialog.fields.len() - 1
-                } else {
-                    dialog.selected - 1
-                };
+            match &mut dialog.dialog_type {
+                DialogType::Input { fields, focus, .. } => {
+                    *focus = match *focus {
+                        DialogFocus::Field(idx) => {
+                            if idx > 0 {
+                                DialogFocus::Field(idx - 1)
+                            } else {
+                                DialogFocus::CancelButton
+                            }
+                        }
+                        DialogFocus::ConfirmButton => {
+                            if !fields.is_empty() {
+                                DialogFocus::Field(fields.len() - 1)
+                            } else {
+                                DialogFocus::CancelButton
+                            }
+                        }
+                        DialogFocus::CancelButton => DialogFocus::ConfirmButton,
+                    };
+                }
+                DialogType::DropdownSelection { .. } => {
+                    // Shift+Tab does nothing in dropdown selection mode
+                }
             }
         }
     }
     fn dialog_input_char(&mut self, c: char) {
         if let Some(dialog) = &mut self.dialog {
-            if let Some(field) = dialog.fields.get_mut(dialog.selected) {
-                field.value.push(c);
+            match &mut dialog.dialog_type {
+                DialogType::Input { fields, focus, .. } => {
+                    if let DialogFocus::Field(idx) = *focus {
+                        if let Some(field) = fields.get_mut(idx) {
+                            match &field.input_type {
+                                InputType::Text | InputType::Environment => {
+                                    field.value.push(c);
+                                }
+                                InputType::Dropdown { .. } | InputType::Choice { .. } => {
+                                    // For dropdown/choice, open selection dialog instead
+                                }
+                            }
+                        }
+                    }
+                }
+                DialogType::DropdownSelection { .. } => {
+                    // Character input is handled separately for dropdown search
+                }
+            }
+        }
+    }
+    
+    fn dialog_search_char(&mut self, c: char) {
+        if let Some(dialog) = &mut self.dialog {
+            if let DialogType::DropdownSelection { search_query, options, filtered_options, selected, .. } = &mut dialog.dialog_type {
+                // Add character to search query
+                search_query.push(c);
+                
+                // Filter options based on search query
+                *filtered_options = options.iter()
+                    .filter(|opt| opt.to_lowercase().contains(&search_query.to_lowercase()))
+                    .cloned()
+                    .collect();
+                
+                // Reset selection to first filtered option
+                *selected = 0;
             }
         }
     }
     fn dialog_backspace(&mut self) {
         if let Some(dialog) = &mut self.dialog {
-            if let Some(field) = dialog.fields.get_mut(dialog.selected) {
-                field.value.pop();
+            match &mut dialog.dialog_type {
+                DialogType::Input { fields, focus, .. } => {
+                    if let DialogFocus::Field(idx) = *focus {
+                        if let Some(field) = fields.get_mut(idx) {
+                            match &field.input_type {
+                                InputType::Text | InputType::Environment => {
+                                    field.value.pop();
+                                }
+                                InputType::Dropdown { .. } | InputType::Choice { .. } => {
+                                    // For dropdown/choice, backspace doesn't do anything
+                                }
+                            }
+                        }
+                    }
+                }
+                DialogType::DropdownSelection { search_query, options, filtered_options, selected, .. } => {
+                    // Remove character from search query
+                    search_query.pop();
+                    
+                    // Re-filter options based on updated search query
+                    *filtered_options = if search_query.is_empty() {
+                        options.clone()
+                    } else {
+                        options.iter()
+                            .filter(|opt| opt.to_lowercase().contains(&search_query.to_lowercase()))
+                            .cloned()
+                            .collect()
+                    };
+                    
+                    // Reset selection to first filtered option
+                    *selected = 0;
+                }
             }
         }
     }
     
-    async fn submit_dialog(&mut self) {
-        if let Some(dialog) = &self.dialog {
-            let repo_name = dialog.repo_name.clone();
-            let action_name = dialog.action_name.clone();
-            
-            if dialog.is_confirmation {
-                // Execute action without inputs
-                match self.provider.execute_action(&repo_name, &action_name).await {
-                    Ok(run) => {
-                        self.set_notification(format!("Triggered action {} on {}: {}", action_name, repo_name, run.id));
-                    }
-                    Err(e) => {
-                        self.set_notification(format!("Failed to execute action {} on {}: {}", action_name, repo_name, e));
+    fn dialog_navigate(&mut self, direction: i32) {
+        if let Some(dialog) = &mut self.dialog {
+            match &mut dialog.dialog_type {
+                DialogType::Input { fields, focus, .. } => {
+                    // Navigate through fields and buttons in input dialog
+                    if direction > 0 {
+                        self.dialog_next_field();
+                    } else {
+                        self.dialog_prev_field();
                     }
                 }
-            } else {
-                // Execute action with inputs
-                // TODO: Implement input submission and action execution with inputs
-                self.set_notification(format!("Executing {} on {} with inputs", action_name, repo_name));
+                DialogType::DropdownSelection { filtered_options, selected, .. } => {
+                    // Navigate through options in dropdown selection
+                    if !filtered_options.is_empty() {
+                        if direction > 0 {
+                            *selected = (*selected + 1) % filtered_options.len();
+                        } else {
+                            *selected = if *selected == 0 { 
+                                filtered_options.len() - 1 
+                            } else { 
+                                *selected - 1 
+                            };
+                        }
+                    }
+                }
             }
         }
-        self.close_dialog();
+    }
+    
+    fn dialog_open_dropdown(&mut self) {
+        let should_open_dropdown = if let Some(dialog) = &self.dialog {
+            match &dialog.dialog_type {
+                DialogType::Input { fields, focus, .. } => {
+                    if let DialogFocus::Field(idx) = *focus {
+                        if let Some(field) = fields.get(idx) {
+                            match &field.input_type {
+                                InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
+                                    Some((field.name.clone(), options.clone(), idx))
+                                }
+                                _ => None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                DialogType::DropdownSelection { .. } => None,
+            }
+        } else {
+            None
+        };
+        
+        if let Some((field_name, options, idx)) = should_open_dropdown {
+            self.open_dropdown_selection(field_name, options, idx);
+        }
+    }
+    
+    fn dialog_navigate_dropdown(&mut self, direction: i32) {
+        let should_open_dropdown = if let Some(dialog) = &self.dialog {
+            match &dialog.dialog_type {
+                DialogType::Input { fields, focus, .. } => {
+                    if let DialogFocus::Field(idx) = *focus {
+                        if let Some(field) = fields.get(idx) {
+                            match &field.input_type {
+                                InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
+                                    Some((field.name.clone(), options.clone(), idx))
+                                }
+                                _ => None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
+                DialogType::DropdownSelection { .. } => None,
+            }
+        } else {
+            None
+        };
+        
+        if let Some((field_name, options, idx)) = should_open_dropdown {
+            self.open_dropdown_selection(field_name, options, idx);
+            return;
+        }
+        
+        // Handle navigation within dropdown selection
+        if let Some(dialog) = &mut self.dialog {
+            if let DialogType::DropdownSelection { filtered_options, selected, .. } = &mut dialog.dialog_type {
+                if !filtered_options.is_empty() {
+                    if direction > 0 {
+                        *selected = (*selected + 1) % filtered_options.len();
+                    } else {
+                        *selected = if *selected == 0 { 
+                            filtered_options.len() - 1 
+                        } else { 
+                            *selected - 1 
+                        };
+                    }
+                }
+            }
+        }
+    }
+    
+    fn dialog_select_dropdown_option(&mut self) {
+        if let Some(dialog) = self.dialog.take() {
+            if let DialogType::DropdownSelection { filtered_options, selected, target_field_index, .. } = dialog.dialog_type {
+                if !filtered_options.is_empty() && selected < filtered_options.len() {
+                    let selected_value = filtered_options[selected].clone();
+                    
+                    // Restore the input dialog and update the field value
+                    if let Some(mut restored_dialog) = self.previous_dialog.take() {
+                        if let DialogType::Input { ref mut fields, .. } = restored_dialog.dialog_type {
+                            if let Some(field) = fields.get_mut(target_field_index) {
+                                field.value = selected_value;
+                                // Update the selected index in the dropdown
+                                if let InputType::Dropdown { options, selected } | InputType::Choice { options, selected } = &mut field.input_type {
+                                    *selected = options.iter().position(|opt| opt == &field.value).unwrap_or(0);
+                                }
+                            }
+                        }
+                        self.dialog = Some(restored_dialog);
+                    }
+                }
+            }
+        }
+    }
+    
+    fn dialog_handle_button_press(&mut self) -> bool {
+        if let Some(dialog) = &self.dialog {
+            match &dialog.dialog_type {
+                DialogType::Input { focus, .. } => {
+                    matches!(focus, DialogFocus::ConfirmButton)
+                }
+                DialogType::DropdownSelection { .. } => false,
+            }
+        } else {
+            false
+        }
+    }
+    
+    async fn submit_dialog(&mut self) {
+        if let Some(dialog) = &mut self.dialog {
+            match &mut dialog.dialog_type {
+                DialogType::Input { focus, repo_name, action_name, is_confirmation, .. } => {
+                    match focus {
+                        DialogFocus::ConfirmButton => {
+                            let repo_name = repo_name.clone();
+                            let action_name = action_name.clone();
+                            
+                            if *is_confirmation {
+                                // Execute action without inputs
+                                match self.provider.execute_action(&repo_name, &action_name).await {
+                                    Ok(run) => {
+                                        self.set_notification(format!("Triggered action {} on {}: {}", action_name, repo_name, run.id));
+                                    }
+                                    Err(e) => {
+                                        self.set_notification(format!("Failed to execute action {} on {}: {}", action_name, repo_name, e));
+                                    }
+                                }
+                            } else {
+                                // Execute action with inputs
+                                // TODO: Implement input submission and action execution with inputs
+                                self.set_notification(format!("Executing {} on {} with inputs", action_name, repo_name));
+                            }
+                            self.close_dialog();
+                        }
+                        DialogFocus::CancelButton => {
+                            self.close_dialog();
+                        }
+                        DialogFocus::Field(_) => {
+                            // If Enter is pressed on a field, move to confirm button
+                            *focus = DialogFocus::ConfirmButton;
+                        }
+                    }
+                }
+                DialogType::DropdownSelection { .. } => {
+                    // Enter selects the current option in dropdown
+                    self.dialog_select_dropdown_option();
+                }
+            }
+        }
     }
 }
 
@@ -519,12 +881,21 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
             if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
                 match key.code {
                     crossterm::event::KeyCode::Char('q') => return Ok(()),
-                    crossterm::event::KeyCode::Char('/') => {
+                    crossterm::event::KeyCode::Char('/') if app.dialog.is_none() => {
                         search_mode = true;
                         app.clear_search();
                     }
                     crossterm::event::KeyCode::Esc if app.dialog.is_some() => {
-                        app.close_dialog();
+                        if let Some(dialog) = &app.dialog {
+                            match dialog.dialog_type {
+                                DialogType::DropdownSelection { .. } => {
+                                    app.cancel_dropdown_selection();
+                                }
+                                DialogType::Input { .. } => {
+                                    app.close_dialog();
+                                }
+                            }
+                        }
                     }
                     crossterm::event::KeyCode::Esc => {
                         search_mode = false;
@@ -546,14 +917,64 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                     crossterm::event::KeyCode::BackTab if app.dialog.is_some() => {
                         app.dialog_prev_field();
                     }
+                    // Open dropdown with space when focused on dropdown field (MUST come before general char handler)
+                    crossterm::event::KeyCode::Char(' ') if app.dialog.is_some() => {
+                        if let Some(dialog) = &app.dialog {
+                            match &dialog.dialog_type {
+                                DialogType::Input { .. } => {
+                                    app.dialog_open_dropdown();
+                                }
+                                DialogType::DropdownSelection { .. } => {
+                                    // Space in dropdown selection does nothing
+                                }
+                            }
+                        }
+                    }
                     crossterm::event::KeyCode::Char(c) if app.dialog.is_some() => {
-                        app.dialog_input_char(c);
+                        // Handle special keys for dropdown selection
+                        if let Some(dialog) = &app.dialog {
+                            match &dialog.dialog_type {
+                                DialogType::DropdownSelection { .. } => {
+                                    match c {
+                                        'j' | 'k' => {
+                                            // These are handled by navigation, don't treat as input
+                                        }
+                                        '/' => {
+                                            // Start/continue search mode - don't interfere with main search
+                                        }
+                                        _ => {
+                                            // All other characters are search input
+                                            app.dialog_search_char(c);
+                                        }
+                                    }
+                                }
+                                DialogType::Input { .. } => {
+                                    match c {
+                                        'j' | 'k' => {
+                                            // These are handled by navigation, don't treat as input
+                                        }
+                                        _ => {
+                                            app.dialog_input_char(c);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            app.dialog_input_char(c);
+                        }
                     }
                     crossterm::event::KeyCode::Backspace if app.dialog.is_some() => {
                         app.dialog_backspace();
                     }
                     crossterm::event::KeyCode::Enter if app.dialog.is_some() => {
                         app.submit_dialog().await;
+                    }
+                    // Dialog navigation with j/k
+                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if app.dialog.is_some() => {
+                        app.dialog_navigate(-1);
+                    }
+                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') if app.dialog.is_some() => {
+                        app.dialog_navigate(1);
                     }
                     // Navigation keys routed to focused panel (only when no dialog is open)
                     crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if !search_mode && app.dialog.is_none() => {
@@ -685,54 +1106,178 @@ fn ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
 
     // Render dialog modal if open
     if let Some(dialog) = &app.dialog {
-        let area = centered_rect(60, 40, f.size());
-        let mut lines = vec![];
-        
-        if dialog.is_confirmation {
-            // Confirmation dialog
-            lines.push(Line::from(Span::styled(
-                format!("Are you sure you want to run '{}' on '{}'?", dialog.action_name, dialog.repo_name),
-                Style::default().fg(Color::White)
-            )));
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "Press Enter to confirm, Escape to cancel",
-                Style::default().fg(Color::Gray)
-            )));
-        } else {
-            // Input dialog
-            for (i, field) in dialog.fields.iter().enumerate() {
-                let mut line = format!("{}: {}", field.name, field.value);
-                if let Some(desc) = &field.description {
-                    line.push_str(&format!(" ({})", desc));
-                }
-                if field.required {
-                    line.push_str(" *");
-                }
-                let style = if i == dialog.selected {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        match &dialog.dialog_type {
+            DialogType::Input { fields, focus, repo_name, action_name, is_confirmation } => {
+                let area = centered_rect(70, 50, f.size());
+                let mut lines = vec![];
+                
+                if *is_confirmation {
+                    // Confirmation dialog
+                    lines.push(Line::from(Span::styled(
+                        format!("Are you sure you want to run '{}' on '{}'?", action_name, repo_name),
+                        Style::default().fg(Color::White)
+                    )));
+                    lines.push(Line::from(""));
                 } else {
-                    Style::default()
+                    // Input dialog - show fields
+                    for (i, field) in fields.iter().enumerate() {
+                        let is_focused = matches!(focus, DialogFocus::Field(idx) if *idx == i);
+                        
+                        // Field name and description
+                        let mut field_name = field.name.clone();
+                        if field.required {
+                            field_name.push_str(" *");
+                        }
+                        if let Some(desc) = &field.description {
+                            field_name.push_str(&format!(" ({})", desc));
+                        }
+                        
+                        let name_style = if is_focused {
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default().fg(Color::Gray)
+                        };
+                        lines.push(Line::from(Span::styled(field_name, name_style)));
+                        
+                        // Field value display
+                        let value_display = match &field.input_type {
+                            InputType::Text | InputType::Environment => {
+                                if is_focused {
+                                    format!("▶ {}", field.value)
+                                } else {
+                                    format!("  {}", field.value)
+                                }
+                            }
+                            InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
+                                if is_focused {
+                                    format!("▶ {} (Space to open selection, {} options)", field.value, options.len())
+                                } else {
+                                    format!("  {} (dropdown)", field.value)
+                                }
+                            }
+                        };
+                        
+                        let value_style = if is_focused {
+                            Style::default().fg(Color::White).bg(Color::Blue)
+                        } else {
+                            Style::default().fg(Color::White)
+                        };
+                        lines.push(Line::from(Span::styled(value_display, value_style)));
+                        lines.push(Line::from(""));
+                    }
+                }
+                
+                // Add buttons
+                lines.push(Line::from(""));
+                
+                let confirm_style = if matches!(focus, DialogFocus::ConfirmButton) {
+                    Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
                 };
-                lines.push(Line::from(Span::styled(line, style)));
+                
+                let cancel_style = if matches!(focus, DialogFocus::CancelButton) {
+                    Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
+                };
+                
+                let button_line = Line::from(vec![
+                    Span::styled("  [", Style::default().fg(Color::Gray)),
+                    Span::styled("Confirm", confirm_style),
+                    Span::styled("]", Style::default().fg(Color::Gray)),
+                    Span::styled("  [", Style::default().fg(Color::Gray)),
+                    Span::styled("Cancel", cancel_style),
+                    Span::styled("]", Style::default().fg(Color::Gray)),
+                ]);
+                lines.push(button_line);
+                
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Tab/Shift+Tab: Navigate • Enter: Select • Escape: Cancel",
+                    Style::default().fg(Color::Gray)
+                )));
+                
+                let title = if *is_confirmation {
+                    "Confirm Action"
+                } else {
+                    "Workflow Inputs"
+                };
+                
+                let block = Block::default()
+                    .title(title)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Yellow));
+                let para = Paragraph::new(lines)
+                    .block(block)
+                    .wrap(Wrap { trim: false });
+                f.render_widget(Clear, area); // Clear the area beneath the modal
+                f.render_widget(para, area);
+            }
+            DialogType::DropdownSelection { field_name, filtered_options, selected, search_query, .. } => {
+                let area = centered_rect(60, 70, f.size());
+                let mut lines = vec![];
+                
+                // Title and search info
+                lines.push(Line::from(Span::styled(
+                    format!("Select {}", field_name),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                )));
+                lines.push(Line::from(""));
+                
+                // Search query
+                if !search_query.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        format!("Search: {}", search_query),
+                        Style::default().fg(Color::Cyan)
+                    )));
+                } else {
+                    lines.push(Line::from(Span::styled(
+                        "Search: (type to filter)",
+                        Style::default().fg(Color::Gray)
+                    )));
+                }
+                lines.push(Line::from(""));
+                
+                // Options list
+                for (i, option) in filtered_options.iter().enumerate() {
+                    let style = if i == *selected {
+                        Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::White)
+                    };
+                    
+                    let prefix = if i == *selected { "▶ " } else { "  " };
+                    lines.push(Line::from(Span::styled(
+                        format!("{}{}", prefix, option),
+                        style
+                    )));
+                }
+                
+                if filtered_options.is_empty() {
+                    lines.push(Line::from(Span::styled(
+                        "No matches found",
+                        Style::default().fg(Color::Red)
+                    )));
+                }
+                
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "↑↓ or j/k: Navigate • Enter: Select • Escape: Cancel • Type: Search",
+                    Style::default().fg(Color::Gray)
+                )));
+                
+                let block = Block::default()
+                    .title("Select Option")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Cyan));
+                let para = Paragraph::new(lines)
+                    .block(block)
+                    .wrap(Wrap { trim: false });
+                f.render_widget(Clear, area); // Clear the area beneath the modal
+                f.render_widget(para, area);
             }
         }
-        
-        let title = if dialog.is_confirmation {
-            "Confirm Action"
-        } else {
-            "Workflow Inputs"
-        };
-        
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
-        let para = Paragraph::new(lines)
-            .block(block)
-            .wrap(Wrap { trim: false });
-        f.render_widget(Clear, area); // Clear the area beneath the modal
-        f.render_widget(para, area);
     }
 }
 
@@ -785,4 +1330,42 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         ].as_ref())
         .split(vertical);
     popup_layout[1]
+}
+
+fn determine_input_type(field_name: &str, available_tags: &[String]) -> InputType {
+    let field_lower = field_name.to_lowercase();
+    
+    // Check for version-related fields
+    if field_lower.contains("version") || field_lower.contains("tag") || field_lower.contains("ref") {
+        if !available_tags.is_empty() {
+            return InputType::Dropdown {
+                options: available_tags.to_vec(),
+                selected: 0,
+            };
+        }
+    }
+    
+    // Check for environment fields
+    if field_lower.contains("environment") || field_lower.contains("env") {
+        return InputType::Choice {
+            options: vec![
+                "production".to_string(),
+                "staging".to_string(),
+                "development".to_string(),
+                "test".to_string(),
+            ],
+            selected: 0,
+        };
+    }
+    
+    // Check for boolean-like fields
+    if field_lower.contains("enable") || field_lower.contains("disable") || field_lower.contains("debug") {
+        return InputType::Choice {
+            options: vec!["true".to_string(), "false".to_string()],
+            selected: 0,
+        };
+    }
+    
+    // Default to text input
+    InputType::Text
 }
