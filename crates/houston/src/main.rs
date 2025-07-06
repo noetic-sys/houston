@@ -930,15 +930,19 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                             }
                         }
                     }
+                    // Dialog navigation with j/k (MUST come before general char handler)
+                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if app.dialog.is_some() => {
+                        app.dialog_navigate(-1);
+                    }
+                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') if app.dialog.is_some() => {
+                        app.dialog_navigate(1);
+                    }
                     crossterm::event::KeyCode::Char(c) if app.dialog.is_some() => {
                         // Handle special keys for dropdown selection
                         if let Some(dialog) = &app.dialog {
                             match &dialog.dialog_type {
                                 DialogType::DropdownSelection { .. } => {
                                     match c {
-                                        'j' | 'k' => {
-                                            // These are handled by navigation, don't treat as input
-                                        }
                                         '/' => {
                                             // Start/continue search mode - don't interfere with main search
                                         }
@@ -949,14 +953,8 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                                     }
                                 }
                                 DialogType::Input { .. } => {
-                                    match c {
-                                        'j' | 'k' => {
-                                            // These are handled by navigation, don't treat as input
-                                        }
-                                        _ => {
-                                            app.dialog_input_char(c);
-                                        }
-                                    }
+                                    // All characters are input for text fields
+                                    app.dialog_input_char(c);
                                 }
                             }
                         } else {
@@ -968,13 +966,6 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                     }
                     crossterm::event::KeyCode::Enter if app.dialog.is_some() => {
                         app.submit_dialog().await;
-                    }
-                    // Dialog navigation with j/k
-                    crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if app.dialog.is_some() => {
-                        app.dialog_navigate(-1);
-                    }
-                    crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') if app.dialog.is_some() => {
-                        app.dialog_navigate(1);
                     }
                     // Navigation keys routed to focused panel (only when no dialog is open)
                     crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') if !search_mode && app.dialog.is_none() => {
