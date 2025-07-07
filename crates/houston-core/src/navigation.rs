@@ -185,12 +185,17 @@ impl AppState {
                 DialogType::Input { fields, focus, .. } => {
                     if let DialogFocus::Field(idx) = *focus {
                         if let Some(field) = fields.get_mut(idx) {
-                            match &field.input_type {
+                            match &mut field.input_type {
                                 InputType::Text => {
                                     field.value.push(c);
                                 }
                                 InputType::Dropdown { .. } | InputType::Choice { .. } => {
                                     // For dropdown/choice, open selection dialog instead
+                                }
+                                InputType::Boolean { value } => {
+                                    // For boolean, toggle on any character input
+                                    *value = !*value;
+                                    field.value = value.to_string();
                                 }
                             }
                         }
@@ -228,12 +233,17 @@ impl AppState {
                 DialogType::Input { fields, focus, .. } => {
                     if let DialogFocus::Field(idx) = *focus {
                         if let Some(field) = fields.get_mut(idx) {
-                            match &field.input_type {
+                            match &mut field.input_type {
                                 InputType::Text => {
                                     field.value.pop();
                                 }
                                 InputType::Dropdown { .. } | InputType::Choice { .. } => {
                                     // For dropdown/choice, backspace doesn't do anything
+                                }
+                                InputType::Boolean { value } => {
+                                    // For boolean, backspace toggles the value
+                                    *value = !*value;
+                                    field.value = value.to_string();
                                 }
                             }
                         }
@@ -312,7 +322,7 @@ impl AppState {
                                 InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
                                     Some((field.name.clone(), options.clone(), idx))
                                 }
-                                _ => None
+                                InputType::Text | InputType::Boolean { .. } => None,
                             }
                         } else {
                             None

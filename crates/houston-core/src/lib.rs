@@ -295,7 +295,7 @@ impl AppState {
                         if let DialogType::Input { ref mut fields, .. } = restored_dialog.dialog_type {
                             if let Some(field) = fields.get_mut(target_field_index) {
                                 field.value = selected_value;
-                                // Update the selected index in the dropdown
+                                // Update the selected index in the dropdown/choice (not applicable to Boolean)
                                 if let InputType::Dropdown { options, selected } | InputType::Choice { options, selected } = &mut field.input_type {
                                     *selected = options.iter().position(|opt| opt == &field.value).unwrap_or(0);
                                 }
