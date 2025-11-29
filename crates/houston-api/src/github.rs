@@ -40,15 +40,24 @@ impl GitHubProvider {
         Self { client, org, user }
     }
 
-    pub async fn fetch_workflow_inputs(&self, repo: &str, workflow_id: &str) -> Result<Vec<WorkflowInputField>, ProviderError> {
-        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
-            (org.clone(), repo.to_string())
+    /// Parse a repo string that might be "owner/repo" or just "repo"
+    /// Returns (owner, repo) tuple
+    async fn parse_repo(&self, repo: &str) -> Result<(String, String), ProviderError> {
+        if let Some((owner, name)) = repo.split_once('/') {
+            Ok((owner.to_string(), name.to_string()))
+        } else if let Some(org) = &self.org {
+            Ok((org.clone(), repo.to_string()))
         } else if let Some(user) = &self.user {
-            (user.clone(), repo.to_string())
+            Ok((user.clone(), repo.to_string()))
         } else {
-            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
-            (user.login, repo.to_string())
-        };
+            let user = self.client.current().user().await
+                .map_err(|e| ProviderError::Api(e.to_string()))?;
+            Ok((user.login, repo.to_string()))
+        }
+    }
+
+    pub async fn fetch_workflow_inputs(&self, repo: &str, workflow_id: &str) -> Result<Vec<WorkflowInputField>, ProviderError> {
+        let (owner, repo_name) = self.parse_repo(repo).await?;
 
         // Get workflow metadata to find the path
         let workflow: serde_json::Value = self.client
@@ -124,8 +133,10 @@ impl VcsProvider for GitHubProvider {
             }
 
             for r in page_repos {
+                // Use full_name (owner/repo) to properly identify repos across different owners
+                let full_name = r.full_name.unwrap_or_else(|| r.name.clone());
                 repos.push(Repo {
-                    name: r.name,
+                    name: full_name,
                     description: r.description,
                 });
             }
@@ -136,32 +147,14 @@ impl VcsProvider for GitHubProvider {
     }
 
     async fn list_tags(&self, repo: &str) -> Result<Vec<Tag>, ProviderError> {
-        if let Some(org) = &self.org {
-            let tags = self.client.repos(org, repo).list_tags().per_page(100).send().await
-                .map_err(|e| ProviderError::Api(e.to_string()))?;
-            return Ok(tags.items.into_iter().map(|t| Tag { name: t.name }).collect());
-        } else if let Some(user) = &self.user {
-            let tags = self.client.repos(user, repo).list_tags().per_page(100).send().await
-                .map_err(|e| ProviderError::Api(e.to_string()))?;
-            return Ok(tags.items.into_iter().map(|t| Tag { name: t.name }).collect());
-        } else {
-            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
-            let login = user.login.clone();
-            let tags = self.client.repos(&login, repo).list_tags().per_page(100).send().await
-                .map_err(|e| ProviderError::Api(e.to_string()))?;
-            return Ok(tags.items.into_iter().map(|t| Tag { name: t.name }).collect());
-        }
+        let (owner, repo_name) = self.parse_repo(repo).await?;
+        let tags = self.client.repos(&owner, &repo_name).list_tags().per_page(100).send().await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+        Ok(tags.items.into_iter().map(|t| Tag { name: t.name }).collect())
     }
 
     async fn list_branches(&self, repo: &str) -> Result<Vec<Branch>, ProviderError> {
-        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
-            (org.clone(), repo.to_string())
-        } else if let Some(user) = &self.user {
-            (user.clone(), repo.to_string())
-        } else {
-            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
-            (user.login, repo.to_string())
-        };
+        let (owner, repo_name) = self.parse_repo(repo).await?;
 
         // Get repo info to find default branch
         let repo_info: serde_json::Value = self.client
@@ -188,24 +181,11 @@ impl VcsProvider for GitHubProvider {
     }
 
     async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError> {
-        let response: Result<serde_json::Value, _> = if let Some(org) = &self.org {
-            // Call the GitHub Actions API to get workflows for org repo
-            self.client
-                .get(format!("/repos/{}/{}/actions/workflows", org, repo), None::<&()>)
-                .await
-        } else if let Some(user) = &self.user {
-            // Call the GitHub Actions API to get workflows for user repo
-            self.client
-                .get(format!("/repos/{}/{}/actions/workflows", user, repo), None::<&()>)
-                .await
-        } else {
-            // Get authenticated user and call the GitHub Actions API
-            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
-            let login = user.login.clone();
-            self.client
-                .get(format!("/repos/{}/{}/actions/workflows", login, repo), None::<&()>)
-                .await
-        };
+        let (owner, repo_name) = self.parse_repo(repo).await?;
+
+        let response: Result<serde_json::Value, _> = self.client
+            .get(format!("/repos/{}/{}/actions/workflows", owner, repo_name), None::<&()>)
+            .await;
 
         match response {
             Ok(workflows_json) => {
@@ -247,14 +227,7 @@ impl VcsProvider for GitHubProvider {
     }
 
     async fn execute_action_with_inputs(&self, repo: &str, action: &str, git_ref: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError> {
-        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
-            (org.clone(), repo.to_string())
-        } else if let Some(user) = &self.user {
-            (user.clone(), repo.to_string())
-        } else {
-            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
-            (user.login, repo.to_string())
-        };
+        let (owner, repo_name) = self.parse_repo(repo).await?;
 
         // Prepare the payload for workflow dispatch
         let mut payload = serde_json::json!({
@@ -293,14 +266,7 @@ impl VcsProvider for GitHubProvider {
     }
 
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
-        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
-            (org.clone(), repo.to_string())
-        } else if let Some(user) = &self.user {
-            (user.clone(), repo.to_string())
-        } else {
-            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
-            (user.login, repo.to_string())
-        };
+        let (owner, repo_name) = self.parse_repo(repo).await?;
 
         let runs_response: serde_json::Value = self.client
             .get(format!("/repos/{}/{}/actions/runs?per_page=20", owner, repo_name), None::<&()>)
