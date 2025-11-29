@@ -1,4 +1,4 @@
-use crate::{VcsProvider, Repo, Tag, Action, ActionRun, ProviderError};
+use crate::{VcsProvider, Repo, Tag, Branch, Action, ActionRun, ProviderError};
 use async_trait::async_trait;
 use octocrab::Octocrab;
 use octocrab::models::Repository;
@@ -153,6 +153,40 @@ impl VcsProvider for GitHubProvider {
         }
     }
 
+    async fn list_branches(&self, repo: &str) -> Result<Vec<Branch>, ProviderError> {
+        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
+            (org.clone(), repo.to_string())
+        } else if let Some(user) = &self.user {
+            (user.clone(), repo.to_string())
+        } else {
+            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
+            (user.login, repo.to_string())
+        };
+
+        // Get repo info to find default branch
+        let repo_info: serde_json::Value = self.client
+            .get(format!("/repos/{}/{}", owner, repo_name), None::<&()>)
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+
+        let default_branch = repo_info.get("default_branch")
+            .and_then(|v| v.as_str())
+            .unwrap_or("main")
+            .to_string();
+
+        // Get branches
+        let branches: Vec<serde_json::Value> = self.client
+            .get(format!("/repos/{}/{}/branches?per_page=100", owner, repo_name), None::<&()>)
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+
+        Ok(branches.iter().filter_map(|b| {
+            let name = b.get("name")?.as_str()?.to_string();
+            let is_default = name == default_branch;
+            Some(Branch { name, is_default })
+        }).collect())
+    }
+
     async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError> {
         let response: Result<serde_json::Value, _> = if let Some(org) = &self.org {
             // Call the GitHub Actions API to get workflows for org repo
@@ -207,12 +241,12 @@ impl VcsProvider for GitHubProvider {
         }
     }
 
-    async fn execute_action(&self, repo: &str, action: &str) -> Result<ActionRun, ProviderError> {
+    async fn execute_action(&self, repo: &str, action: &str, git_ref: &str) -> Result<ActionRun, ProviderError> {
         // Execute workflow without inputs
-        self.execute_action_with_inputs(repo, action, &HashMap::new()).await
+        self.execute_action_with_inputs(repo, action, git_ref, &HashMap::new()).await
     }
 
-    async fn execute_action_with_inputs(&self, repo: &str, action: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError> {
+    async fn execute_action_with_inputs(&self, repo: &str, action: &str, git_ref: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError> {
         let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
             (org.clone(), repo.to_string())
         } else if let Some(user) = &self.user {
@@ -224,7 +258,7 @@ impl VcsProvider for GitHubProvider {
 
         // Prepare the payload for workflow dispatch
         let mut payload = serde_json::json!({
-            "ref": "main", // Default to main branch
+            "ref": git_ref,
         });
 
         // Add inputs if provided
@@ -246,31 +280,58 @@ impl VcsProvider for GitHubProvider {
                 // GitHub API returns 204 No Content on success, so we create a mock ActionRun
                 Ok(ActionRun {
                     id: format!("run_{}", chrono::Utc::now().timestamp()),
+                    workflow_name: action.to_string(),
                     status: "queued".to_string(),
+                    conclusion: None,
                     started_at: Some(chrono::Utc::now().to_rfc3339()),
                     finished_at: None,
+                    branch: Some(git_ref.to_string()),
                 })
             }
             Err(e) => Err(ProviderError::Api(e.to_string()))
         }
     }
 
-    async fn list_action_runs(&self, _repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
-        // Placeholder: Return mock action runs
-        let runs = vec![
-            ActionRun {
-                id: "123456789".to_string(),
-                status: "completed".to_string(),
-                started_at: Some("2024-01-15T10:30:00Z".to_string()),
-                finished_at: Some("2024-01-15T10:35:00Z".to_string()),
-            },
-            ActionRun {
-                id: "123456788".to_string(),
-                status: "failed".to_string(),
-                started_at: Some("2024-01-14T15:20:00Z".to_string()),
-                finished_at: Some("2024-01-14T15:25:00Z".to_string()),
-            },
-        ];
+    async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
+        let (owner, repo_name): (String, String) = if let Some(org) = &self.org {
+            (org.clone(), repo.to_string())
+        } else if let Some(user) = &self.user {
+            (user.clone(), repo.to_string())
+        } else {
+            let user = self.client.current().user().await.map_err(|e| ProviderError::Api(e.to_string()))?;
+            (user.login, repo.to_string())
+        };
+
+        let runs_response: serde_json::Value = self.client
+            .get(format!("/repos/{}/{}/actions/runs?per_page=20", owner, repo_name), None::<&()>)
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+
+        let runs = runs_response.get("workflow_runs")
+            .and_then(|r| r.as_array())
+            .map(|runs_array| {
+                runs_array.iter().filter_map(|run| {
+                    let id = run.get("id")?.as_u64()?.to_string();
+                    let workflow_name = run.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string();
+                    let status = run.get("status")?.as_str()?.to_string();
+                    let conclusion = run.get("conclusion").and_then(|c| c.as_str()).map(|s| s.to_string());
+                    let started_at = run.get("created_at").and_then(|t| t.as_str()).map(|s| s.to_string());
+                    let finished_at = run.get("updated_at").and_then(|t| t.as_str()).map(|s| s.to_string());
+                    let branch = run.get("head_branch").and_then(|b| b.as_str()).map(|s| s.to_string());
+
+                    Some(ActionRun {
+                        id,
+                        workflow_name,
+                        status,
+                        conclusion,
+                        started_at,
+                        finished_at,
+                        branch,
+                    })
+                }).collect()
+            })
+            .unwrap_or_default();
+
         Ok(runs)
     }
 } 

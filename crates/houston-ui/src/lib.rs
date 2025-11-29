@@ -262,10 +262,11 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
                             }
                         }
                         InputType::Boolean { value } => {
+                            let checkbox = if *value { "[x]" } else { "[ ]" };
                             if is_focused {
-                                format!("▶ {}", if *value { "true" } else { "false" })
+                                format!("▶ {} (Space to toggle)", checkbox)
                             } else {
-                                format!("  {}", if *value { "true" } else { "false" })
+                                format!("  {}", checkbox)
                             }
                         }
                     };

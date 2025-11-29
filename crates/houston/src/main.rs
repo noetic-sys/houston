@@ -86,21 +86,31 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                 AppMsg::TagsFailed(e) => app.fail_loading_tags(e),
                 AppMsg::ActionsLoaded(actions) => app.finish_loading_actions(actions),
                 AppMsg::ActionsFailed(e) => app.fail_loading_actions(e),
+                AppMsg::BranchesLoaded(branches) => app.finish_loading_branches(branches),
+                AppMsg::BranchesFailed(e) => app.fail_loading_branches(e),
             }
         }
 
-        // Always load actions/tags when repo changes
+        // Always load actions/tags/branches when repo changes
         let current_repo_name = app.filtered_repos.get(app.selected_repo).cloned();
         if current_repo_name != last_repo_name {
             if let Some(repo_name) = &current_repo_name {
                 app.start_loading_tags();
                 app.start_loading_actions();
+                app.start_loading_branches();
+
                 let tx_tags = tx.clone();
                 let tx_actions = tx.clone();
+                let tx_branches = tx.clone();
+
                 let provider_tags = app.provider.clone();
                 let provider_actions = app.provider.clone();
+                let provider_branches = app.provider.clone();
+
                 let repo_name_tags = repo_name.clone();
                 let repo_name_actions = repo_name.clone();
+                let repo_name_branches = repo_name.clone();
+
                 tokio::spawn(async move {
                     match provider_tags.list_tags(&repo_name_tags).await {
                         Ok(tags) => tx_tags.send(AppMsg::TagsLoaded(tags)).ok(),
@@ -111,6 +121,12 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
                     match provider_actions.list_actions(&repo_name_actions).await {
                         Ok(actions) => tx_actions.send(AppMsg::ActionsLoaded(actions)).ok(),
                         Err(e) => tx_actions.send(AppMsg::ActionsFailed(format!("Failed to load actions: {}", e))).ok(),
+                    };
+                });
+                tokio::spawn(async move {
+                    match provider_branches.list_branches(&repo_name_branches).await {
+                        Ok(branches) => tx_branches.send(AppMsg::BranchesLoaded(branches)).ok(),
+                        Err(e) => tx_branches.send(AppMsg::BranchesFailed(format!("Failed to load branches: {}", e))).ok(),
                     };
                 });
             }

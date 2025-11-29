@@ -16,6 +16,12 @@ pub struct Tag {
 }
 
 #[derive(Debug, Clone)]
+pub struct Branch {
+    pub name: String,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct Action {
     pub name: String,
     pub description: Option<String>,
@@ -25,9 +31,12 @@ pub struct Action {
 #[derive(Debug, Clone)]
 pub struct ActionRun {
     pub id: String,
+    pub workflow_name: String,
     pub status: String,
+    pub conclusion: Option<String>,
     pub started_at: Option<String>,
     pub finished_at: Option<String>,
+    pub branch: Option<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -46,8 +55,9 @@ pub enum ProviderError {
 pub trait VcsProvider: Send + Sync {
     async fn list_repos(&self) -> Result<Vec<Repo>, ProviderError>;
     async fn list_tags(&self, repo: &str) -> Result<Vec<Tag>, ProviderError>;
+    async fn list_branches(&self, repo: &str) -> Result<Vec<Branch>, ProviderError>;
     async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError>;
-    async fn execute_action(&self, repo: &str, action: &str) -> Result<ActionRun, ProviderError>;
-    async fn execute_action_with_inputs(&self, repo: &str, action: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError>;
+    async fn execute_action(&self, repo: &str, action: &str, git_ref: &str) -> Result<ActionRun, ProviderError>;
+    async fn execute_action_with_inputs(&self, repo: &str, action: &str, git_ref: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError>;
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError>;
 }

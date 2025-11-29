@@ -192,10 +192,9 @@ impl AppState {
                                 InputType::Dropdown { .. } | InputType::Choice { .. } => {
                                     // For dropdown/choice, open selection dialog instead
                                 }
-                                InputType::Boolean { value } => {
-                                    // For boolean, toggle on any character input
-                                    *value = !*value;
-                                    field.value = value.to_string();
+                                InputType::Boolean { .. } => {
+                                    // Boolean fields don't accept character input
+                                    // They toggle via Space key (handled separately)
                                 }
                             }
                         }
@@ -240,10 +239,9 @@ impl AppState {
                                 InputType::Dropdown { .. } | InputType::Choice { .. } => {
                                     // For dropdown/choice, backspace doesn't do anything
                                 }
-                                InputType::Boolean { value } => {
-                                    // For boolean, backspace toggles the value
-                                    *value = !*value;
-                                    field.value = value.to_string();
+                                InputType::Boolean { .. } => {
+                                    // Boolean fields don't respond to backspace
+                                    // They toggle via Space key
                                 }
                             }
                         }
@@ -339,6 +337,21 @@ impl AppState {
         
         if let Some((field_name, options, idx)) = should_open_dropdown {
             self.open_dropdown_selection(field_name, options, idx);
+        }
+    }
+
+    pub fn dialog_toggle_boolean(&mut self) {
+        if let Some(dialog) = &mut self.dialog {
+            if let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type {
+                if let DialogFocus::Field(idx) = *focus {
+                    if let Some(field) = fields.get_mut(idx) {
+                        if let InputType::Boolean { value } = &mut field.input_type {
+                            *value = !*value;
+                            field.value = value.to_string();
+                        }
+                    }
+                }
+            }
         }
     }
 

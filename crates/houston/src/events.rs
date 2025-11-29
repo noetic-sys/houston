@@ -1,5 +1,5 @@
 use houston_core::AppState;
-use houston_ui::{FocusedPanel, DialogType};
+use houston_ui::{FocusedPanel, DialogType, DialogFocus};
 use crossterm::event::{KeyEvent, KeyCode};
 use std::io;
 
@@ -42,12 +42,21 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
         KeyCode::BackTab if app.dialog.is_some() => {
             app.dialog_prev_field();
         }
-        // Open dropdown with space when focused on dropdown field (MUST come before general char handler)
+        // Open dropdown or toggle boolean with space when focused on field (MUST come before general char handler)
         KeyCode::Char(' ') if app.dialog.is_some() => {
             if let Some(dialog) = &app.dialog {
                 match &dialog.dialog_type {
-                    DialogType::Input { .. } => {
-                        app.dialog_open_dropdown();
+                    DialogType::Input { fields, focus, .. } => {
+                        // Check if current field is a boolean
+                        if let DialogFocus::Field(idx) = focus {
+                            if let Some(field) = fields.get(*idx) {
+                                if matches!(field.input_type, houston_ui::InputType::Boolean { .. }) {
+                                    app.dialog_toggle_boolean();
+                                } else {
+                                    app.dialog_open_dropdown();
+                                }
+                            }
+                        }
                     }
                     DialogType::DropdownSelection { .. } => {
                         // Space in dropdown selection does nothing
