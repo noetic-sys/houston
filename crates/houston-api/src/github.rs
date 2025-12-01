@@ -1,4 +1,4 @@
-use crate::{VcsProvider, Repo, Tag, Branch, Action, ActionRun, ProviderError};
+use crate::{VcsProvider, Repo, Tag, Branch, Action, ActionRun, JobInfo, JobStep, DeploymentInfo, ProviderError};
 use async_trait::async_trait;
 use octocrab::Octocrab;
 use octocrab::models::Repository;
@@ -300,4 +300,120 @@ impl VcsProvider for GitHubProvider {
 
         Ok(runs)
     }
-} 
+
+    async fn get_run_jobs(&self, repo: &str, run_id: &str) -> Result<Vec<JobInfo>, ProviderError> {
+        let (owner, repo_name) = self.parse_repo(repo).await?;
+
+        let jobs_response: serde_json::Value = self.client
+            .get(format!("/repos/{}/{}/actions/runs/{}/jobs", owner, repo_name, run_id), None::<&()>)
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+
+        let jobs = jobs_response.get("jobs")
+            .and_then(|j| j.as_array())
+            .map(|jobs_array| {
+                jobs_array.iter().filter_map(|job| {
+                    let id = job.get("id")?.as_u64()?;
+                    let name = job.get("name")?.as_str()?.to_string();
+                    let status = job.get("status")?.as_str()?.to_string();
+                    let conclusion = job.get("conclusion").and_then(|c| c.as_str()).map(|s| s.to_string());
+
+                    // Parse steps
+                    let steps = job.get("steps")
+                        .and_then(|s| s.as_array())
+                        .map(|steps_array| {
+                            steps_array.iter().filter_map(|step| {
+                                let step_name = step.get("name")?.as_str()?.to_string();
+                                let step_status = step.get("status")?.as_str()?.to_string();
+                                let step_conclusion = step.get("conclusion").and_then(|c| c.as_str()).map(|s| s.to_string());
+                                let step_number = step.get("number")?.as_u64()?;
+                                Some(JobStep {
+                                    name: step_name,
+                                    status: step_status,
+                                    conclusion: step_conclusion,
+                                    number: step_number,
+                                })
+                            }).collect()
+                        })
+                        .unwrap_or_default();
+
+                    Some(JobInfo { id, name, status, conclusion, steps })
+                }).collect()
+            })
+            .unwrap_or_default();
+
+        Ok(jobs)
+    }
+
+    async fn list_deployments(&self, repo: &str) -> Result<Vec<DeploymentInfo>, ProviderError> {
+        let (owner, repo_name) = self.parse_repo(repo).await?;
+
+        let deployments_response: serde_json::Value = self.client
+            .get(format!("/repos/{}/{}/deployments?per_page=50", owner, repo_name), None::<&()>)
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+
+        let deployments_array = deployments_response.as_array()
+            .cloned()
+            .unwrap_or_default();
+
+        let mut deployments = Vec::new();
+
+        for deployment in deployments_array {
+            let id = match deployment.get("id").and_then(|i| i.as_u64()) {
+                Some(id) => id,
+                None => continue,
+            };
+            let environment = deployment.get("environment")
+                .and_then(|e| e.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let sha = deployment.get("sha")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            let ref_name = deployment.get("ref")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string();
+            let created_at = deployment.get("created_at")
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
+            let creator = deployment.get("creator")
+                .and_then(|c| c.get("login"))
+                .and_then(|l| l.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Get deployment status
+            let status_response: Result<serde_json::Value, _> = self.client
+                .get(format!("/repos/{}/{}/deployments/{}/statuses", owner, repo_name, id), None::<&()>)
+                .await;
+
+            let status = match status_response {
+                Ok(statuses) => {
+                    statuses.as_array()
+                        .and_then(|arr| arr.first())
+                        .and_then(|s| s.get("state"))
+                        .and_then(|state| state.as_str())
+                        .unwrap_or("unknown")
+                        .to_string()
+                }
+                Err(_) => "unknown".to_string(),
+            };
+
+            deployments.push(DeploymentInfo {
+                id,
+                environment,
+                sha: sha.chars().take(7).collect(), // Short SHA
+                ref_name,
+                status,
+                created_at,
+                creator,
+            });
+        }
+
+        Ok(deployments)
+    }
+}

@@ -4,6 +4,40 @@ use houston_api::{Action, Tag};
 use houston_api::github::WorkflowInputField;
 
 // UI State Types
+
+/// Main views in the application (k9s-style)
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum View {
+    Repos,      // 1 - Repository list with status
+    Workflows,  // 2 - Workflows for selected repo
+    Runs,       // 3 - Recent runs with live status
+    Envs,       // 4 - Environment deployments
+    Tags,       // 5 - Release tags
+}
+
+impl View {
+    pub fn name(&self) -> &'static str {
+        match self {
+            View::Repos => "Repos",
+            View::Workflows => "Workflows",
+            View::Runs => "Runs",
+            View::Envs => "Environments",
+            View::Tags => "Tags",
+        }
+    }
+
+    pub fn from_key(c: char) -> Option<View> {
+        match c {
+            '1' => Some(View::Repos),
+            '2' => Some(View::Workflows),
+            '3' => Some(View::Runs),
+            '4' => Some(View::Envs),
+            '5' => Some(View::Tags),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum FocusedPanel {
     Repos,
@@ -417,7 +451,296 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
     }
 }
 
+// ============================================================================
+// Header / Footer Chrome
+// ============================================================================
+
+pub fn render_header(f: &mut Frame, area: Rect, repo: Option<&str>, view: View, is_loading: bool) {
+    let loading_indicator = if is_loading { " ↻" } else { "" };
+
+    let repo_display = repo.unwrap_or("No repo selected");
+
+    let header_text = vec![
+        Span::styled("🚀 Houston", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" │ "),
+        Span::styled(repo_display, Style::default().fg(Color::Yellow)),
+        Span::raw(" │ "),
+        Span::styled(format!("View: {}", view.name()), Style::default().fg(Color::Green)),
+        Span::styled(loading_indicator, Style::default().fg(Color::Yellow)),
+    ];
+
+    let header = Paragraph::new(Line::from(header_text))
+        .style(Style::default().bg(Color::DarkGray))
+        .block(Block::default());
+
+    f.render_widget(header, area);
+}
+
+pub fn render_footer(f: &mut Frame, area: Rect, view: View, notification: Option<&str>) {
+    // View tabs
+    let views = [
+        (View::Repos, "1"),
+        (View::Workflows, "2"),
+        (View::Runs, "3"),
+        (View::Envs, "4"),
+        (View::Tags, "5"),
+    ];
+
+    let mut tabs: Vec<Span> = vec![];
+    for (v, key) in views {
+        let style = if v == view {
+            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        tabs.push(Span::styled(format!("<{}>{}", key, v.name()), style));
+        tabs.push(Span::raw(" "));
+    }
+
+    // Help hints based on view
+    let hints = match view {
+        View::Repos => "Enter:select  /:filter  r:refresh  ^C:quit",
+        View::Workflows => "Space:trigger  Enter:runs  /:filter  ^C:quit",
+        View::Runs => "Enter:logs  c:cancel  R:re-run  /:filter  ^C:quit",
+        View::Envs => "d:deploy  p:promote  r:rollback  ^C:quit",
+        View::Tags => "Space:deploy  Enter:details  /:filter  ^C:quit",
+    };
+
+    tabs.push(Span::raw("│ "));
+    tabs.push(Span::styled(hints, Style::default().fg(Color::DarkGray)));
+
+    // Show notification if present
+    let content = if let Some(msg) = notification {
+        Line::from(vec![
+            Span::styled(format!(" {} ", msg), Style::default().fg(Color::White).bg(Color::Red)),
+            Span::raw(" "),
+        ])
+    } else {
+        Line::from(tabs)
+    };
+
+    let footer = Paragraph::new(content)
+        .style(Style::default().bg(Color::Black));
+
+    f.render_widget(footer, area);
+}
+
+// ============================================================================
+// Log Viewer Components
+// ============================================================================
+
+use houston_api::JobInfo;
+
+#[derive(Debug, Clone)]
+pub struct LogViewerState {
+    pub run_id: String,
+    pub workflow_name: String,
+    pub jobs: Vec<JobInfo>,
+    pub loading: bool,
+    pub scroll_offset: usize,
+}
+
+impl LogViewerState {
+    pub fn new(run_id: String, workflow_name: String) -> Self {
+        Self {
+            run_id,
+            workflow_name,
+            jobs: Vec::new(),
+            loading: true,
+            scroll_offset: 0,
+        }
+    }
+
+    pub fn total_lines(&self) -> usize {
+        let mut count = 0;
+        for job in &self.jobs {
+            count += 2; // Job header + blank line
+            count += job.steps.len();
+        }
+        count
+    }
+}
+
+pub fn render_log_viewer(f: &mut Frame, state: &LogViewerState) {
+    let area = f.area();
+
+    // Full screen log viewer
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),  // Header
+            Constraint::Min(1),     // Content
+            Constraint::Length(1),  // Footer
+        ])
+        .split(area);
+
+    // Header
+    let status_indicator = if state.loading { "● Loading..." } else { "✓ Loaded" };
+    let header_text = vec![
+        Span::styled("Run Details: ", Style::default().fg(Color::Cyan)),
+        Span::styled(&state.workflow_name, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(format!(" ({})", state.run_id)),
+        Span::raw(" │ "),
+        Span::styled(status_indicator, Style::default().fg(if state.loading { Color::Yellow } else { Color::Green })),
+    ];
+    let header = Paragraph::new(Line::from(header_text))
+        .style(Style::default().bg(Color::DarkGray));
+    f.render_widget(header, chunks[0]);
+
+    // Build content lines
+    let mut lines: Vec<Line> = Vec::new();
+
+    if state.loading && state.jobs.is_empty() {
+        lines.push(Line::from(Span::styled("Loading...", Style::default().fg(Color::DarkGray))));
+    } else if state.jobs.is_empty() {
+        lines.push(Line::from(Span::styled("No jobs found", Style::default().fg(Color::DarkGray))));
+    } else {
+        for job in &state.jobs {
+            // Job header
+            let (job_icon, job_color) = match job.conclusion.as_deref() {
+                Some("success") => ("✓", Color::Green),
+                Some("failure") => ("✗", Color::Red),
+                Some("cancelled") => ("○", Color::DarkGray),
+                Some("skipped") => ("⊘", Color::DarkGray),
+                _ => ("●", Color::Yellow),
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("{} ", job_icon), Style::default().fg(job_color)),
+                Span::styled(&job.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    format!(" ({})", job.conclusion.as_deref().unwrap_or(&job.status)),
+                    Style::default().fg(job_color)
+                ),
+            ]));
+
+            // Steps
+            for step in &job.steps {
+                let (icon, color) = match step.conclusion.as_deref() {
+                    Some("success") => ("  ✓", Color::Green),
+                    Some("failure") => ("  ✗", Color::Red),
+                    Some("cancelled") => ("  ○", Color::DarkGray),
+                    Some("skipped") => ("  ⊘", Color::DarkGray),
+                    _ => ("  ●", Color::Yellow),
+                };
+
+                lines.push(Line::from(vec![
+                    Span::styled(icon, Style::default().fg(color)),
+                    Span::raw(" "),
+                    Span::styled(&step.name, Style::default().fg(Color::White)),
+                ]));
+            }
+
+            lines.push(Line::from("")); // Blank line between jobs
+        }
+    }
+
+    // Apply scroll offset
+    let visible_lines: Vec<Line> = lines.into_iter()
+        .skip(state.scroll_offset)
+        .collect();
+
+    let content = Paragraph::new(visible_lines)
+        .block(Block::default().borders(Borders::ALL).title("Jobs & Steps"));
+    f.render_widget(content, chunks[1]);
+
+    // Footer
+    let footer_text = vec![
+        Span::styled("Esc", Style::default().fg(Color::Cyan)),
+        Span::raw(":back  "),
+        Span::styled("j/k", Style::default().fg(Color::Cyan)),
+        Span::raw(":scroll  "),
+        Span::styled("g/G", Style::default().fg(Color::Cyan)),
+        Span::raw(":top/bottom"),
+    ];
+    let footer = Paragraph::new(Line::from(footer_text))
+        .style(Style::default().bg(Color::Black));
+    f.render_widget(footer, chunks[2]);
+}
+
+// ============================================================================
+// Runs View Components
+// ============================================================================
+
+use houston_api::ActionRun;
+
+pub fn render_runs_view(f: &mut Frame, area: Rect, runs: &[ActionRun], selected: usize, loading: bool) {
+    // Header row
+    let header = Row::new(vec![
+        Cell::from("STATUS").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("WORKFLOW").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("REF").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("STARTED").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("DURATION").style(Style::default().add_modifier(Modifier::BOLD)),
+    ]).height(1);
+
+    let rows: Vec<Row> = if loading && runs.is_empty() {
+        vec![Row::new(vec![Cell::from("Loading...")]).style(Style::default().fg(Color::DarkGray))]
+    } else if runs.is_empty() {
+        vec![Row::new(vec![Cell::from("No runs found")]).style(Style::default().fg(Color::DarkGray))]
+    } else {
+        runs.iter().enumerate().map(|(i, run)| {
+            let (icon, status_color) = match run.status.as_str() {
+                "completed" | "success" => ("✓", Color::Green),
+                "failure" | "failed" => ("✗", Color::Red),
+                "in_progress" | "queued" | "pending" | "waiting" => ("●", Color::Yellow),
+                "cancelled" => ("○", Color::DarkGray),
+                _ => match run.conclusion.as_deref() {
+                    Some("success") => ("✓", Color::Green),
+                    Some("failure") => ("✗", Color::Red),
+                    Some("cancelled") => ("○", Color::DarkGray),
+                    _ => ("?", Color::Gray),
+                }
+            };
+
+            let status_cell = Cell::from(format!("{} {}", icon, run.conclusion.as_deref().unwrap_or(&run.status)))
+                .style(Style::default().fg(status_color));
+
+            let branch_display = run.branch.as_deref().unwrap_or("-");
+
+            // Format started time (simplified - just show the time part)
+            let started = run.started_at.as_deref()
+                .and_then(|s| s.split('T').nth(1))
+                .and_then(|t| t.split('.').next())
+                .unwrap_or("-");
+
+            let style = if i == selected {
+                Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+
+            Row::new(vec![
+                status_cell,
+                Cell::from(run.workflow_name.clone()),
+                Cell::from(branch_display.to_string()),
+                Cell::from(started.to_string()),
+                Cell::from("-"), // Duration would need calculation
+            ]).style(style)
+        }).collect()
+    };
+
+    let widths = [
+        Constraint::Length(12),
+        Constraint::Percentage(30),
+        Constraint::Percentage(20),
+        Constraint::Length(12),
+        Constraint::Length(10),
+    ];
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).title("Recent Runs"))
+        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+        .highlight_symbol("▶ ");
+
+    f.render_widget(table, area);
+}
+
+// ============================================================================
 // UI Helper Functions
+// ============================================================================
+
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)

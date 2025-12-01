@@ -1,5 +1,5 @@
-use houston_api::{GitHubProvider, VcsProvider, Action, Tag, Branch};
-use houston_ui::{FocusedPanel, InputType, DialogFocus, DialogType, DialogState, UIWorkflowInputField, convert_workflow_input_field};
+use houston_api::{GitHubProvider, VcsProvider, Action, Tag, Branch, ActionRun, JobInfo, DeploymentInfo};
+use houston_ui::{FocusedPanel, View, InputType, DialogFocus, DialogType, DialogState, UIWorkflowInputField, convert_workflow_input_field, LogViewerState};
 use ratatui::widgets::ListState;
 use std::time::{Duration, Instant};
 
@@ -14,6 +14,12 @@ pub enum AppMsg {
     ActionsFailed(String),
     BranchesLoaded(Vec<Branch>),
     BranchesFailed(String),
+    RunsLoaded(Vec<ActionRun>),
+    RunsFailed(String),
+    JobsLoaded(Vec<JobInfo>),
+    JobsFailed(String),
+    DeploymentsLoaded(Vec<DeploymentInfo>),
+    DeploymentsFailed(String),
 }
 
 pub struct AppState {
@@ -42,6 +48,21 @@ pub struct AppState {
     pub focused_panel: FocusedPanel,
     pub dialog: Option<DialogState>,
     pub previous_dialog: Option<DialogState>,
+    // View system
+    pub current_view: View,
+    // Runs
+    pub runs: Vec<ActionRun>,
+    pub selected_run: usize,
+    pub runs_loading: bool,
+    // Log viewer
+    pub log_viewer: Option<LogViewerState>,
+    // Auto-refresh
+    pub last_runs_refresh: Option<Instant>,
+    pub refresh_interval: Duration,
+    // Deployments
+    pub deployments: Vec<DeploymentInfo>,
+    pub selected_deployment: usize,
+    pub deployments_loading: bool,
 }
 
 impl AppState {
@@ -78,6 +99,159 @@ impl AppState {
             focused_panel: FocusedPanel::Repos,
             dialog: None,
             previous_dialog: None,
+            // View system
+            current_view: View::Repos,
+            // Runs
+            runs: Vec::new(),
+            selected_run: 0,
+            runs_loading: false,
+            // Log viewer
+            log_viewer: None,
+            // Auto-refresh (5 seconds)
+            last_runs_refresh: None,
+            refresh_interval: Duration::from_secs(5),
+            // Deployments
+            deployments: Vec::new(),
+            selected_deployment: 0,
+            deployments_loading: false,
+        }
+    }
+
+    // View switching
+    pub fn set_view(&mut self, view: View) {
+        self.current_view = view;
+    }
+
+    // Runs management
+    pub fn start_loading_runs(&mut self) {
+        self.runs_loading = true;
+    }
+
+    pub fn finish_loading_runs(&mut self, runs: Vec<ActionRun>) {
+        self.runs_loading = false;
+        self.runs = runs;
+        self.selected_run = 0;
+    }
+
+    pub fn fail_loading_runs(&mut self, msg: String) {
+        self.runs_loading = false;
+        self.set_notification(msg);
+    }
+
+    pub fn should_refresh_runs(&self) -> bool {
+        // Only auto-refresh in Runs view and not currently loading
+        if self.current_view != View::Runs || self.runs_loading {
+            return false;
+        }
+        match self.last_runs_refresh {
+            None => true,
+            Some(last) => last.elapsed() >= self.refresh_interval,
+        }
+    }
+
+    pub fn mark_runs_refreshed(&mut self) {
+        self.last_runs_refresh = Some(Instant::now());
+    }
+
+    pub fn next_run(&mut self) {
+        if !self.runs.is_empty() {
+            self.selected_run = (self.selected_run + 1) % self.runs.len();
+        }
+    }
+
+    pub fn previous_run(&mut self) {
+        if !self.runs.is_empty() {
+            self.selected_run = if self.selected_run == 0 {
+                self.runs.len() - 1
+            } else {
+                self.selected_run - 1
+            };
+        }
+    }
+
+    // Log viewer (shows jobs and steps)
+    pub fn open_log_viewer(&mut self) {
+        if let Some(run) = self.runs.get(self.selected_run) {
+            self.log_viewer = Some(LogViewerState::new(
+                run.id.clone(),
+                run.workflow_name.clone(),
+            ));
+        }
+    }
+
+    pub fn close_log_viewer(&mut self) {
+        self.log_viewer = None;
+    }
+
+    pub fn finish_loading_jobs(&mut self, jobs: Vec<JobInfo>) {
+        if let Some(viewer) = &mut self.log_viewer {
+            viewer.jobs = jobs;
+            viewer.loading = false;
+        }
+    }
+
+    pub fn fail_loading_jobs(&mut self, msg: String) {
+        if let Some(viewer) = &mut self.log_viewer {
+            viewer.loading = false;
+            self.set_notification(msg);
+        }
+    }
+
+    pub fn log_scroll_down(&mut self) {
+        if let Some(viewer) = &mut self.log_viewer {
+            let max_scroll = viewer.total_lines().saturating_sub(1);
+            viewer.scroll_offset = (viewer.scroll_offset + 1).min(max_scroll);
+        }
+    }
+
+    pub fn log_scroll_up(&mut self) {
+        if let Some(viewer) = &mut self.log_viewer {
+            viewer.scroll_offset = viewer.scroll_offset.saturating_sub(1);
+        }
+    }
+
+    pub fn log_scroll_top(&mut self) {
+        if let Some(viewer) = &mut self.log_viewer {
+            viewer.scroll_offset = 0;
+        }
+    }
+
+    pub fn log_scroll_bottom(&mut self) {
+        if let Some(viewer) = &mut self.log_viewer {
+            viewer.scroll_offset = viewer.total_lines().saturating_sub(20);
+        }
+    }
+
+    // Deployments
+    pub fn start_loading_deployments(&mut self) {
+        self.deployments_loading = true;
+        self.deployments.clear();
+    }
+
+    pub fn finish_loading_deployments(&mut self, deployments: Vec<DeploymentInfo>) {
+        self.deployments_loading = false;
+        self.deployments = deployments;
+        self.selected_deployment = 0;
+    }
+
+    pub fn fail_loading_deployments(&mut self, msg: String) {
+        self.deployments_loading = false;
+        self.set_notification(msg);
+    }
+
+    pub fn next_deployment(&mut self) {
+        if !self.deployments.is_empty() {
+            self.selected_deployment = (self.selected_deployment + 1) % self.deployments.len();
+        }
+    }
+
+    pub fn previous_deployment(&mut self) {
+        if !self.deployments.is_empty() {
+            self.selected_deployment = if self.selected_deployment == 0 {
+                self.deployments.len() - 1
+            } else {
+                self.selected_deployment - 1
+            };
         }
     }
 

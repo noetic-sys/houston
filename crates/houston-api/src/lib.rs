@@ -51,6 +51,39 @@ pub enum ProviderError {
     Unknown(String),
 }
 
+#[derive(Debug, Clone)]
+pub struct JobStep {
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub number: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct JobInfo {
+    pub id: u64,
+    pub name: String,
+    pub status: String,
+    pub conclusion: Option<String>,
+    pub steps: Vec<JobStep>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Environment {
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeploymentInfo {
+    pub id: u64,
+    pub environment: String,
+    pub sha: String,
+    pub ref_name: String,
+    pub status: String,
+    pub created_at: String,
+    pub creator: String,
+}
+
 #[async_trait]
 pub trait VcsProvider: Send + Sync {
     async fn list_repos(&self) -> Result<Vec<Repo>, ProviderError>;
@@ -60,4 +93,6 @@ pub trait VcsProvider: Send + Sync {
     async fn execute_action(&self, repo: &str, action: &str, git_ref: &str) -> Result<ActionRun, ProviderError>;
     async fn execute_action_with_inputs(&self, repo: &str, action: &str, git_ref: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError>;
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError>;
+    async fn get_run_jobs(&self, repo: &str, run_id: &str) -> Result<Vec<JobInfo>, ProviderError>;
+    async fn list_deployments(&self, repo: &str) -> Result<Vec<DeploymentInfo>, ProviderError>;
 }
