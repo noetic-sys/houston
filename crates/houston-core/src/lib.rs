@@ -1,5 +1,5 @@
 use houston_api::{GitHubProvider, VcsProvider, Action, Tag, Branch, ActionRun, JobInfo, DeploymentInfo};
-use houston_ui::{FocusedPanel, View, InputType, DialogFocus, DialogType, DialogState, UIWorkflowInputField, convert_workflow_input_field, LogViewerState};
+use houston_ui::{FocusedPanel, View, InputType, DialogFocus, DialogType, DialogState, UIWorkflowInputField, convert_workflow_input_field, LogViewerState, WindowManager};
 use ratatui::widgets::ListState;
 use std::time::{Duration, Instant};
 
@@ -63,6 +63,8 @@ pub struct AppState {
     pub deployments: Vec<DeploymentInfo>,
     pub selected_deployment: usize,
     pub deployments_loading: bool,
+    // Window manager for multi-panel UI
+    pub window_manager: WindowManager,
 }
 
 impl AppState {
@@ -114,6 +116,8 @@ impl AppState {
             deployments: Vec::new(),
             selected_deployment: 0,
             deployments_loading: false,
+            // Window manager for multi-panel UI
+            window_manager: WindowManager::new(),
         }
     }
 

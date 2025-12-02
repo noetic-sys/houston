@@ -3,6 +3,17 @@ use ratatui::text::{Span, Line};
 use houston_api::{Action, Tag};
 use houston_api::github::WorkflowInputField;
 
+// New panel system modules
+pub mod panel;
+pub mod layout;
+pub mod window_manager;
+pub mod panels;
+
+// Re-export key types from new modules
+pub use panel::{PanelId, PanelContext};
+pub use layout::{LayoutNode, PresetLayout, SplitDirection};
+pub use window_manager::WindowManager;
+
 // UI State Types
 
 /// Main views in the application (k9s-style)
@@ -455,72 +466,191 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
 // Header / Footer Chrome
 // ============================================================================
 
-pub fn render_header(f: &mut Frame, area: Rect, repo: Option<&str>, view: View, is_loading: bool) {
-    let loading_indicator = if is_loading { " ↻" } else { "" };
+/// Stats to display in header
+#[derive(Default)]
+pub struct HeaderStats {
+    pub repo_count: usize,
+    pub workflow_count: usize,
+    pub runs_success: usize,
+    pub runs_failed: usize,
+    pub runs_pending: usize,
+    pub deployments_count: usize,
+}
 
-    let repo_display = repo.unwrap_or("No repo selected");
+pub fn render_header(
+    f: &mut Frame,
+    area: Rect,
+    repo: Option<&str>,
+    view: View,
+    is_loading: bool,
+    stats: &HeaderStats,
+) {
+    // Animated loading indicator
+    let loading = if is_loading {
+        let tick = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() / 100) % 4;
+        match tick {
+            0 => "◐",
+            1 => "◓",
+            2 => "◑",
+            _ => "◒",
+        }
+    } else { "" };
 
-    let header_text = vec![
-        Span::styled("🚀 Houston", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" │ "),
-        Span::styled(repo_display, Style::default().fg(Color::Yellow)),
-        Span::raw(" │ "),
-        Span::styled(format!("View: {}", view.name()), Style::default().fg(Color::Green)),
-        Span::styled(loading_indicator, Style::default().fg(Color::Yellow)),
+    let repo_display = repo.unwrap_or("-");
+
+    // Build header with stats
+    let mut spans = vec![
+        Span::styled("⚡HOUSTON", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
     ];
 
-    let header = Paragraph::new(Line::from(header_text))
-        .style(Style::default().bg(Color::DarkGray))
-        .block(Block::default());
+    // Current repo (truncated if needed)
+    let repo_short = if repo_display.len() > 30 {
+        format!("...{}", &repo_display[repo_display.len()-27..])
+    } else {
+        repo_display.to_string()
+    };
+    spans.push(Span::styled(repo_short, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+
+    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+
+    // Resource counts based on view
+    match view {
+        View::Repos => {
+            spans.push(Span::styled(
+                format!("📦{}", stats.repo_count),
+                Style::default().fg(Color::White)
+            ));
+        }
+        View::Workflows => {
+            spans.push(Span::styled(
+                format!("⚙️ {}", stats.workflow_count),
+                Style::default().fg(Color::White)
+            ));
+        }
+        View::Runs => {
+            // Status summary: ✓ 5  ● 2  ✗ 1
+            spans.push(Span::styled(
+                format!("✓{}", stats.runs_success),
+                Style::default().fg(Color::Green)
+            ));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("●{}", stats.runs_pending),
+                Style::default().fg(Color::Yellow)
+            ));
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                format!("✗{}", stats.runs_failed),
+                Style::default().fg(Color::Red)
+            ));
+        }
+        View::Envs => {
+            spans.push(Span::styled(
+                format!("🌍{}", stats.deployments_count),
+                Style::default().fg(Color::White)
+            ));
+        }
+        View::Tags => {
+            spans.push(Span::styled("🏷️ Tags", Style::default().fg(Color::White)));
+        }
+    }
+
+    // View indicator
+    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(
+        view.name().to_uppercase(),
+        Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+    ));
+
+    // Loading indicator
+    if !loading.is_empty() {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(loading, Style::default().fg(Color::Yellow)));
+    }
+
+    let header = Paragraph::new(Line::from(spans))
+        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
 
     f.render_widget(header, area);
 }
 
-pub fn render_footer(f: &mut Frame, area: Rect, view: View, notification: Option<&str>) {
-    // View tabs
-    let views = [
-        (View::Repos, "1"),
-        (View::Workflows, "2"),
-        (View::Runs, "3"),
-        (View::Envs, "4"),
-        (View::Tags, "5"),
-    ];
-
-    let mut tabs: Vec<Span> = vec![];
-    for (v, key) in views {
-        let style = if v == view {
-            Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+pub fn render_footer(f: &mut Frame, area: Rect, view: View, notification: Option<&str>, help_open: bool) {
+    // Show notification prominently if present
+    if let Some(msg) = notification {
+        let is_error = msg.to_lowercase().contains("fail") || msg.to_lowercase().contains("error");
+        let (bg, fg) = if is_error {
+            (Color::Red, Color::White)
         } else {
-            Style::default().fg(Color::Gray)
+            (Color::Green, Color::Black)
         };
-        tabs.push(Span::styled(format!("<{}>{}", key, v.name()), style));
-        tabs.push(Span::raw(" "));
+        let content = Line::from(Span::styled(
+            format!(" {} ", msg),
+            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD)
+        ));
+        f.render_widget(Paragraph::new(content), area);
+        return;
     }
 
-    // Help hints based on view
-    let hints = match view {
-        View::Repos => "Enter:select  /:filter  r:refresh  ^C:quit",
-        View::Workflows => "Space:trigger  Enter:runs  /:filter  ^C:quit",
-        View::Runs => "Enter:logs  c:cancel  R:re-run  /:filter  ^C:quit",
-        View::Envs => "d:deploy  p:promote  r:rollback  ^C:quit",
-        View::Tags => "Space:deploy  Enter:details  /:filter  ^C:quit",
+    let mut spans: Vec<Span> = vec![];
+
+    // View tabs with better styling
+    let views = [
+        (View::Repos, "1", "Repos"),
+        (View::Workflows, "2", "Workflows"),
+        (View::Runs, "3", "Runs"),
+        (View::Envs, "4", "Envs"),
+        (View::Tags, "5", "Tags"),
+    ];
+
+    for (v, key, name) in views {
+        if v == view {
+            spans.push(Span::styled(
+                format!(" {}", key),
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            ));
+            spans.push(Span::styled(
+                format!(":{} ", name),
+                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+            ));
+        } else {
+            spans.push(Span::styled(
+                format!(" {}:{} ", key, name),
+                Style::default().fg(Color::DarkGray)
+            ));
+        }
+    }
+
+    spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
+
+    // Contextual shortcuts
+    let shortcuts = match view {
+        View::Repos => vec![("↵", "select"), ("/", "filter"), ("?", "help")],
+        View::Workflows => vec![("␣", "run"), ("↵", "details"), ("/", "filter")],
+        View::Runs => vec![("↵", "jobs"), ("r", "refresh"), ("/", "filter")],
+        View::Envs => vec![("↵", "details"), ("r", "refresh")],
+        View::Tags => vec![("␣", "deploy"), ("↵", "details")],
     };
 
-    tabs.push(Span::raw("│ "));
-    tabs.push(Span::styled(hints, Style::default().fg(Color::DarkGray)));
+    for (key, action) in shortcuts {
+        spans.push(Span::styled(format!(" {}", key), Style::default().fg(Color::Cyan)));
+        spans.push(Span::styled(format!(":{}", action), Style::default().fg(Color::DarkGray)));
+    }
 
-    // Show notification if present
-    let content = if let Some(msg) = notification {
-        Line::from(vec![
-            Span::styled(format!(" {} ", msg), Style::default().fg(Color::White).bg(Color::Red)),
-            Span::raw(" "),
-        ])
-    } else {
-        Line::from(tabs)
-    };
+    // Help hint
+    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(
+        if help_open { "?:close" } else { "?:help" },
+        Style::default().fg(Color::DarkGray)
+    ));
+    spans.push(Span::styled(" ^C", Style::default().fg(Color::Cyan)));
+    spans.push(Span::styled(":quit", Style::default().fg(Color::DarkGray)));
 
-    let footer = Paragraph::new(content)
-        .style(Style::default().bg(Color::Black));
+    let footer = Paragraph::new(Line::from(spans))
+        .style(Style::default().bg(Color::Rgb(20, 20, 30)));
 
     f.render_widget(footer, area);
 }
