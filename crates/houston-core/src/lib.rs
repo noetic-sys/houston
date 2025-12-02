@@ -122,6 +122,33 @@ impl AppState {
         self.current_view = view;
     }
 
+    // Centralized message handler
+    pub fn handle_message(&mut self, msg: AppMsg) {
+        match msg {
+            AppMsg::TagsLoaded(data) => self.finish_loading_tags(data),
+            AppMsg::TagsFailed(e) => self.fail_loading_tags(e),
+            AppMsg::ActionsLoaded(data) => self.finish_loading_actions(data),
+            AppMsg::ActionsFailed(e) => self.fail_loading_actions(e),
+            AppMsg::BranchesLoaded(data) => self.finish_loading_branches(data),
+            AppMsg::BranchesFailed(e) => self.fail_loading_branches(e),
+            AppMsg::RunsLoaded(data) => self.finish_loading_runs(data),
+            AppMsg::RunsFailed(e) => self.fail_loading_runs(e),
+            AppMsg::JobsLoaded(data) => self.finish_loading_jobs(data),
+            AppMsg::JobsFailed(e) => self.fail_loading_jobs(e),
+            AppMsg::DeploymentsLoaded(data) => self.finish_loading_deployments(data),
+            AppMsg::DeploymentsFailed(e) => self.fail_loading_deployments(e),
+        }
+    }
+
+    // Start loading all data for a repo
+    pub fn start_all_loading(&mut self) {
+        self.start_loading_tags();
+        self.start_loading_actions();
+        self.start_loading_branches();
+        self.start_loading_runs();
+        self.start_loading_deployments();
+    }
+
     // Runs management
     pub fn start_loading_runs(&mut self) {
         self.runs_loading = true;
