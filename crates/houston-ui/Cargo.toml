@@ -10,3 +10,4 @@ description.workspace = true
 
 [dependencies]
 ratatui = "0.29.0"
+houston-api = { path = "../houston-api" }
