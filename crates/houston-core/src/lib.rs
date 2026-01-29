@@ -1,5 +1,5 @@
 use houston_api::{GitHubProvider, VcsProvider, Action, Tag, Branch, ActionRun, JobInfo, DeploymentInfo};
-use houston_ui::{FocusedPanel, View, InputType, DialogFocus, DialogType, DialogState, UIWorkflowInputField, convert_workflow_input_field, LogViewerState, WindowManager};
+use houston_ui::{InputType, DialogFocus, DialogType, DialogState, UIWorkflowInputField, convert_workflow_input_field, LogViewerState, WindowManager, PanelId};
 use ratatui::widgets::ListState;
 use std::time::{Duration, Instant};
 
@@ -45,11 +45,8 @@ pub struct AppState {
     pub branches: Vec<Branch>,
     pub branches_loading: bool,
     pub default_branch: String,
-    pub focused_panel: FocusedPanel,
     pub dialog: Option<DialogState>,
     pub previous_dialog: Option<DialogState>,
-    // View system
-    pub current_view: View,
     // Runs
     pub runs: Vec<ActionRun>,
     pub selected_run: usize,
@@ -98,11 +95,8 @@ impl AppState {
             branches: Vec::new(),
             branches_loading: false,
             default_branch: "main".to_string(),
-            focused_panel: FocusedPanel::Repos,
             dialog: None,
             previous_dialog: None,
-            // View system
-            current_view: View::Repos,
             // Runs
             runs: Vec::new(),
             selected_run: 0,
@@ -119,11 +113,6 @@ impl AppState {
             // Window manager for multi-panel UI
             window_manager: WindowManager::new(),
         }
-    }
-
-    // View switching
-    pub fn set_view(&mut self, view: View) {
-        self.current_view = view;
     }
 
     // Centralized message handler
@@ -170,8 +159,8 @@ impl AppState {
     }
 
     pub fn should_refresh_runs(&self) -> bool {
-        // Only auto-refresh in Runs view and not currently loading
-        if self.current_view != View::Runs || self.runs_loading {
+        // Only auto-refresh when Runs panel is visible and not currently loading
+        if !self.window_manager.is_visible(PanelId::Runs) || self.runs_loading {
             return false;
         }
         match self.last_runs_refresh {

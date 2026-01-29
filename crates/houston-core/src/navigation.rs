@@ -1,5 +1,5 @@
 use crate::AppState;
-use houston_ui::{FocusedPanel, DialogType, DialogFocus, InputType};
+use houston_ui::{DialogType, DialogFocus, InputType};
 
 impl AppState {
     // =========================================================================
@@ -88,26 +88,6 @@ impl AppState {
             self.selected_tag = self.selected_tag.checked_sub(1).unwrap_or(self.tags.len() - 1);
             self.tags_list_state.select(Some(self.selected_tag));
         }
-    }
-
-    // =========================================================================
-    // Panel Focus
-    // =========================================================================
-
-    pub fn focus_next_panel(&mut self) {
-        self.focused_panel = match self.focused_panel {
-            FocusedPanel::Repos => FocusedPanel::Actions,
-            FocusedPanel::Actions => FocusedPanel::Tags,
-            FocusedPanel::Tags => FocusedPanel::Repos,
-        };
-    }
-
-    pub fn focus_prev_panel(&mut self) {
-        self.focused_panel = match self.focused_panel {
-            FocusedPanel::Repos => FocusedPanel::Tags,
-            FocusedPanel::Actions => FocusedPanel::Repos,
-            FocusedPanel::Tags => FocusedPanel::Actions,
-        };
     }
 
     // =========================================================================

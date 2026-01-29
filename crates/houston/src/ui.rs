@@ -1,6 +1,6 @@
 use houston_ui::{
     render_dialog, render_header, render_footer, render_log_viewer,
-    View, HeaderStats, PanelId, PresetLayout,
+    HeaderStats, PanelId,
     panels::{
         render_runs_panel, render_logs_panel, render_repos_panel,
         render_workflows_panel, render_deployments_panel, render_tags_panel,
@@ -10,7 +10,7 @@ use houston_core::AppState;
 use ratatui::prelude::*;
 
 pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
-    // Check if we're in zoomed mode for the log viewer (legacy behavior)
+    // Check if we're in zoomed mode for the log viewer
     // If zoomed on Logs panel AND log_viewer exists, render full-screen
     if app.window_manager.zoomed() == Some(PanelId::Logs) {
         if let Some(log_viewer) = &app.log_viewer {
@@ -50,11 +50,11 @@ pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
         deployments_count: app.deployments.len(),
     };
 
-    // Render header with stats
-    render_header_with_panels(f, header_area, current_repo, app, is_loading, &stats);
+    // Render header
+    render_header(f, header_area, current_repo, app.window_manager.current_preset(), is_loading, &stats);
 
     // Render footer
-    render_footer_with_panels(f, footer_area, app);
+    render_footer(f, footer_area, app.window_manager.current_preset(), app.notification.as_deref(), false);
 
     // Render content using window manager
     render_panels(f, content_area, app, search_mode);
@@ -62,39 +62,6 @@ pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
     // Render dialog modal if open (on top of everything)
     if let Some(dialog) = &app.dialog {
         render_dialog(f, dialog);
-    }
-}
-
-/// Render header showing visible panels
-fn render_header_with_panels(
-    f: &mut Frame,
-    area: Rect,
-    current_repo: Option<&str>,
-    app: &AppState,
-    is_loading: bool,
-    stats: &HeaderStats,
-) {
-    // For now, use the legacy header but we could enhance it
-    // Convert preset to View for backwards compatibility
-    let view = preset_to_view(app.window_manager.current_preset());
-    render_header(f, area, current_repo, view, is_loading, stats);
-}
-
-/// Render footer with panel-aware shortcuts
-fn render_footer_with_panels(f: &mut Frame, area: Rect, app: &AppState) {
-    // Convert preset to View for backwards compatibility
-    let view = preset_to_view(app.window_manager.current_preset());
-    render_footer(f, area, view, app.notification.as_deref(), false);
-}
-
-/// Convert PresetLayout to legacy View for backwards compatibility
-fn preset_to_view(preset: PresetLayout) -> View {
-    match preset {
-        PresetLayout::Repos => View::Repos,
-        PresetLayout::Workflows => View::Workflows,
-        PresetLayout::Runs => View::Runs,
-        PresetLayout::Deployments => View::Envs,
-        PresetLayout::Tags => View::Tags,
     }
 }
 

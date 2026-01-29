@@ -16,46 +16,6 @@ pub use window_manager::WindowManager;
 
 // UI State Types
 
-/// Main views in the application (k9s-style)
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-pub enum View {
-    Repos,      // 1 - Repository list with status
-    Workflows,  // 2 - Workflows for selected repo
-    Runs,       // 3 - Recent runs with live status
-    Envs,       // 4 - Environment deployments
-    Tags,       // 5 - Release tags
-}
-
-impl View {
-    pub fn name(&self) -> &'static str {
-        match self {
-            View::Repos => "Repos",
-            View::Workflows => "Workflows",
-            View::Runs => "Runs",
-            View::Envs => "Environments",
-            View::Tags => "Tags",
-        }
-    }
-
-    pub fn from_key(c: char) -> Option<View> {
-        match c {
-            '1' => Some(View::Repos),
-            '2' => Some(View::Workflows),
-            '3' => Some(View::Runs),
-            '4' => Some(View::Envs),
-            '5' => Some(View::Tags),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub enum FocusedPanel {
-    Repos,
-    Actions,
-    Tags,
-}
-
 #[derive(Debug, Clone)]
 pub enum InputType {
     Text,
@@ -481,7 +441,7 @@ pub fn render_header(
     f: &mut Frame,
     area: Rect,
     repo: Option<&str>,
-    view: View,
+    preset: PresetLayout,
     is_loading: bool,
     stats: &HeaderStats,
 ) {
@@ -517,21 +477,21 @@ pub fn render_header(
 
     spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
 
-    // Resource counts based on view
-    match view {
-        View::Repos => {
+    // Resource counts based on preset
+    match preset {
+        PresetLayout::Repos => {
             spans.push(Span::styled(
                 format!("📦{}", stats.repo_count),
                 Style::default().fg(Color::White)
             ));
         }
-        View::Workflows => {
+        PresetLayout::Workflows => {
             spans.push(Span::styled(
                 format!("⚙️ {}", stats.workflow_count),
                 Style::default().fg(Color::White)
             ));
         }
-        View::Runs => {
+        PresetLayout::Runs => {
             // Status summary: ✓ 5  ● 2  ✗ 1
             spans.push(Span::styled(
                 format!("✓{}", stats.runs_success),
@@ -548,21 +508,21 @@ pub fn render_header(
                 Style::default().fg(Color::Red)
             ));
         }
-        View::Envs => {
+        PresetLayout::Deployments => {
             spans.push(Span::styled(
                 format!("🌍{}", stats.deployments_count),
                 Style::default().fg(Color::White)
             ));
         }
-        View::Tags => {
+        PresetLayout::Tags => {
             spans.push(Span::styled("🏷️ Tags", Style::default().fg(Color::White)));
         }
     }
 
-    // View indicator
+    // Preset indicator
     spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
     spans.push(Span::styled(
-        view.name().to_uppercase(),
+        preset.name().to_uppercase(),
         Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
     ));
 
@@ -578,7 +538,7 @@ pub fn render_header(
     f.render_widget(header, area);
 }
 
-pub fn render_footer(f: &mut Frame, area: Rect, view: View, notification: Option<&str>, help_open: bool) {
+pub fn render_footer(f: &mut Frame, area: Rect, preset: PresetLayout, notification: Option<&str>, _help_open: bool) {
     // Show notification prominently if present
     if let Some(msg) = notification {
         let is_error = msg.to_lowercase().contains("fail") || msg.to_lowercase().contains("error");
@@ -597,17 +557,17 @@ pub fn render_footer(f: &mut Frame, area: Rect, view: View, notification: Option
 
     let mut spans: Vec<Span> = vec![];
 
-    // View tabs with better styling
-    let views = [
-        (View::Repos, "1", "Repos"),
-        (View::Workflows, "2", "Workflows"),
-        (View::Runs, "3", "Runs"),
-        (View::Envs, "4", "Envs"),
-        (View::Tags, "5", "Tags"),
+    // Preset tabs with better styling
+    let presets = [
+        (PresetLayout::Repos, "1", "Repos"),
+        (PresetLayout::Workflows, "2", "Wkfl"),
+        (PresetLayout::Runs, "3", "Runs"),
+        (PresetLayout::Deployments, "4", "Deps"),
+        (PresetLayout::Tags, "5", "Tags"),
     ];
 
-    for (v, key, name) in views {
-        if v == view {
+    for (p, key, name) in presets {
+        if p == preset {
             spans.push(Span::styled(
                 format!(" {}", key),
                 Style::default().fg(Color::Black).bg(Color::Cyan)
@@ -626,13 +586,23 @@ pub fn render_footer(f: &mut Frame, area: Rect, view: View, notification: Option
 
     spans.push(Span::styled("│", Style::default().fg(Color::DarkGray)));
 
-    // Contextual shortcuts
-    let shortcuts = match view {
-        View::Repos => vec![("↵", "select"), ("/", "filter"), ("?", "help")],
-        View::Workflows => vec![("␣", "run"), ("↵", "details"), ("/", "filter")],
-        View::Runs => vec![("↵", "jobs"), ("r", "refresh"), ("/", "filter")],
-        View::Envs => vec![("↵", "details"), ("r", "refresh")],
-        View::Tags => vec![("␣", "deploy"), ("↵", "details")],
+    // Panel toggle shortcuts
+    spans.push(Span::styled(" l", Style::default().fg(Color::Cyan)));
+    spans.push(Span::styled(":logs", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(" d", Style::default().fg(Color::Cyan)));
+    spans.push(Span::styled(":deps", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(" z", Style::default().fg(Color::Cyan)));
+    spans.push(Span::styled(":zoom", Style::default().fg(Color::DarkGray)));
+
+    spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+
+    // Contextual shortcuts based on preset
+    let shortcuts = match preset {
+        PresetLayout::Repos => vec![("↵", "select"), ("/", "filter")],
+        PresetLayout::Workflows => vec![("␣", "run"), ("↵", "details")],
+        PresetLayout::Runs => vec![("↵", "logs"), ("r", "refresh")],
+        PresetLayout::Deployments => vec![("↵", "details"), ("r", "refresh")],
+        PresetLayout::Tags => vec![("␣", "deploy"), ("↵", "details")],
     };
 
     for (key, action) in shortcuts {
@@ -642,10 +612,6 @@ pub fn render_footer(f: &mut Frame, area: Rect, view: View, notification: Option
 
     // Help hint
     spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
-    spans.push(Span::styled(
-        if help_open { "?:close" } else { "?:help" },
-        Style::default().fg(Color::DarkGray)
-    ));
     spans.push(Span::styled(" ^C", Style::default().fg(Color::Cyan)));
     spans.push(Span::styled(":quit", Style::default().fg(Color::DarkGray)));
 
