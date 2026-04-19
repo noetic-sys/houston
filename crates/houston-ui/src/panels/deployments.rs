@@ -151,7 +151,7 @@ fn group_by_environment(deployments: &[DeploymentInfo]) -> Vec<(String, Vec<&Dep
 
     // Sort environments by priority
     let mut result: Vec<_> = grouped.into_iter().collect();
-    result.sort_by(|a, b| env_priority(&a.0).cmp(&env_priority(&b.0)));
+    result.sort_by_key(|a| env_priority(&a.0));
 
     result
 }

@@ -1064,14 +1064,15 @@ pub fn determine_input_type(field: &WorkflowInputField, available_tags: &[String
     let field_lower = field.name.to_lowercase();
 
     // Check for version-related fields that might use tags
-    if field_lower.contains("version") || field_lower.contains("tag") || field_lower.contains("ref")
+    if (field_lower.contains("version")
+        || field_lower.contains("tag")
+        || field_lower.contains("ref"))
+        && !available_tags.is_empty()
     {
-        if !available_tags.is_empty() {
-            return InputType::Dropdown {
-                options: available_tags.to_vec(),
-                selected: 0,
-            };
-        }
+        return InputType::Dropdown {
+            options: available_tags.to_vec(),
+            selected: 0,
+        };
     }
 
     // Default to text input
@@ -1135,7 +1136,7 @@ mod tests {
         let input_type = determine_input_type(&field, &[]);
         match input_type {
             InputType::Boolean { value } => {
-                assert_eq!(value, false);
+                assert!(!value);
             }
             _ => panic!("Expected Boolean type for boolean field"),
         }
