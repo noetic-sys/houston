@@ -11,6 +11,11 @@ use ui::render_ui;
 use events::handle_key_event;
 
 fn get_github_token() -> Option<String> {
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        if !token.is_empty() {
+            return Some(token.trim().to_string());
+        }
+    }
     std::process::Command::new("gh")
         .args(["auth", "token"])
         .output()
