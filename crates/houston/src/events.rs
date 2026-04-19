@@ -10,10 +10,10 @@ pub async fn handle_key_event(
     search_mode: &mut bool,
 ) -> io::Result<(bool, bool)> {
     // Ctrl+C or Ctrl+Q to quit (always works)
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-        if let KeyCode::Char('c') | KeyCode::Char('q') = key.code {
-            return Ok((true, false));
-        }
+    if key.modifiers.contains(KeyModifiers::CONTROL)
+        && let KeyCode::Char('c') | KeyCode::Char('q') = key.code
+    {
+        return Ok((true, false));
     }
 
     // Handle zoomed panel mode - z to unzoom, navigation within panel
@@ -45,13 +45,13 @@ pub async fn handle_key_event(
     }
 
     // Handle preset switching with number keys (1-5) when not in search mode or dialog
-    if !*search_mode && app.dialog.is_none() {
-        if let KeyCode::Char(c) = key.code {
-            if let Some(preset) = PresetLayout::from_key(c) {
-                app.window_manager.apply_preset(preset);
-                return Ok((false, false));
-            }
-        }
+    if !*search_mode
+        && app.dialog.is_none()
+        && let KeyCode::Char(c) = key.code
+        && let Some(preset) = PresetLayout::from_key(c)
+    {
+        app.window_manager.apply_preset(preset);
+        return Ok((false, false));
     }
 
     // Handle panel toggles and zoom when not in search mode or dialog
@@ -137,21 +137,15 @@ pub async fn handle_key_event(
         }
         // Open dropdown or toggle boolean with space when focused on field
         KeyCode::Char(' ') if app.dialog.is_some() => {
-            if let Some(dialog) = &app.dialog {
-                match &dialog.dialog_type {
-                    DialogType::Input { fields, focus, .. } => {
-                        if let DialogFocus::Field(idx) = focus {
-                            if let Some(field) = fields.get(*idx) {
-                                if matches!(field.input_type, houston_ui::InputType::Boolean { .. })
-                                {
-                                    app.dialog_toggle_boolean();
-                                } else {
-                                    app.dialog_open_dropdown();
-                                }
-                            }
-                        }
-                    }
-                    DialogType::DropdownSelection { .. } => {}
+            if let Some(dialog) = &app.dialog
+                && let DialogType::Input { fields, focus, .. } = &dialog.dialog_type
+                && let DialogFocus::Field(idx) = focus
+                && let Some(field) = fields.get(*idx)
+            {
+                if matches!(field.input_type, houston_ui::InputType::Boolean { .. }) {
+                    app.dialog_toggle_boolean();
+                } else {
+                    app.dialog_open_dropdown();
                 }
             }
         }

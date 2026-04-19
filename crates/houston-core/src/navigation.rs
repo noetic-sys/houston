@@ -106,32 +106,32 @@ impl AppState {
     // =========================================================================
 
     pub fn dialog_next_field(&mut self) {
-        if let Some(dialog) = &mut self.dialog {
-            if let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type {
-                *focus = match *focus {
-                    DialogFocus::Field(i) if i + 1 < fields.len() => DialogFocus::Field(i + 1),
-                    DialogFocus::Field(_) => DialogFocus::ConfirmButton,
-                    DialogFocus::ConfirmButton => DialogFocus::CancelButton,
-                    DialogFocus::CancelButton if !fields.is_empty() => DialogFocus::Field(0),
-                    DialogFocus::CancelButton => DialogFocus::ConfirmButton,
-                };
-            }
+        if let Some(dialog) = &mut self.dialog
+            && let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type
+        {
+            *focus = match *focus {
+                DialogFocus::Field(i) if i + 1 < fields.len() => DialogFocus::Field(i + 1),
+                DialogFocus::Field(_) => DialogFocus::ConfirmButton,
+                DialogFocus::ConfirmButton => DialogFocus::CancelButton,
+                DialogFocus::CancelButton if !fields.is_empty() => DialogFocus::Field(0),
+                DialogFocus::CancelButton => DialogFocus::ConfirmButton,
+            };
         }
     }
 
     pub fn dialog_prev_field(&mut self) {
-        if let Some(dialog) = &mut self.dialog {
-            if let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type {
-                *focus = match *focus {
-                    DialogFocus::Field(0) => DialogFocus::CancelButton,
-                    DialogFocus::Field(i) => DialogFocus::Field(i - 1),
-                    DialogFocus::ConfirmButton if !fields.is_empty() => {
-                        DialogFocus::Field(fields.len() - 1)
-                    }
-                    DialogFocus::ConfirmButton => DialogFocus::CancelButton,
-                    DialogFocus::CancelButton => DialogFocus::ConfirmButton,
-                };
-            }
+        if let Some(dialog) = &mut self.dialog
+            && let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type
+        {
+            *focus = match *focus {
+                DialogFocus::Field(0) => DialogFocus::CancelButton,
+                DialogFocus::Field(i) => DialogFocus::Field(i - 1),
+                DialogFocus::ConfirmButton if !fields.is_empty() => {
+                    DialogFocus::Field(fields.len() - 1)
+                }
+                DialogFocus::ConfirmButton => DialogFocus::CancelButton,
+                DialogFocus::CancelButton => DialogFocus::ConfirmButton,
+            };
         }
     }
 
@@ -180,22 +180,19 @@ impl AppState {
     // =========================================================================
 
     pub fn dialog_input_char(&mut self, c: char) {
-        if let Some(dialog) = &mut self.dialog {
-            if let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type {
-                if let DialogFocus::Field(idx) = *focus {
-                    if let Some(field) = fields.get_mut(idx) {
-                        if let InputType::Text = field.input_type {
-                            field.value.push(c);
-                        }
-                    }
-                }
-            }
+        if let Some(dialog) = &mut self.dialog
+            && let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type
+            && let DialogFocus::Field(idx) = *focus
+            && let Some(field) = fields.get_mut(idx)
+            && let InputType::Text = field.input_type
+        {
+            field.value.push(c);
         }
     }
 
     pub fn dialog_search_char(&mut self, c: char) {
-        if let Some(dialog) = &mut self.dialog {
-            if let DialogType::DropdownSelection {
+        if let Some(dialog) = &mut self.dialog
+            && let DialogType::DropdownSelection {
                 search_query,
                 options,
                 filtered_options,
@@ -203,17 +200,16 @@ impl AppState {
                 scroll_offset,
                 ..
             } = &mut dialog.dialog_type
-            {
-                search_query.push(c);
-                let query = search_query.to_lowercase();
-                *filtered_options = options
-                    .iter()
-                    .filter(|o| o.to_lowercase().contains(&query))
-                    .cloned()
-                    .collect();
-                *selected = 0;
-                *scroll_offset = 0;
-            }
+        {
+            search_query.push(c);
+            let query = search_query.to_lowercase();
+            *filtered_options = options
+                .iter()
+                .filter(|o| o.to_lowercase().contains(&query))
+                .cloned()
+                .collect();
+            *selected = 0;
+            *scroll_offset = 0;
         }
     }
 
@@ -221,12 +217,11 @@ impl AppState {
         if let Some(dialog) = &mut self.dialog {
             match &mut dialog.dialog_type {
                 DialogType::Input { fields, focus, .. } => {
-                    if let DialogFocus::Field(idx) = *focus {
-                        if let Some(field) = fields.get_mut(idx) {
-                            if let InputType::Text = field.input_type {
-                                field.value.pop();
-                            }
-                        }
+                    if let DialogFocus::Field(idx) = *focus
+                        && let Some(field) = fields.get_mut(idx)
+                        && let InputType::Text = field.input_type
+                    {
+                        field.value.pop();
                     }
                 }
                 DialogType::DropdownSelection {
@@ -256,21 +251,16 @@ impl AppState {
     }
 
     pub fn dialog_open_dropdown(&mut self) {
-        let info = if let Some(dialog) = &self.dialog {
-            if let DialogType::Input { fields, focus, .. } = &dialog.dialog_type {
-                if let DialogFocus::Field(idx) = *focus {
-                    fields.get(idx).and_then(|f| match &f.input_type {
-                        InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
-                            Some((f.name.clone(), options.clone(), idx))
-                        }
-                        _ => None,
-                    })
-                } else {
-                    None
+        let info = if let Some(dialog) = &self.dialog
+            && let DialogType::Input { fields, focus, .. } = &dialog.dialog_type
+            && let DialogFocus::Field(idx) = *focus
+        {
+            fields.get(idx).and_then(|f| match &f.input_type {
+                InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
+                    Some((f.name.clone(), options.clone(), idx))
                 }
-            } else {
-                None
-            }
+                _ => None,
+            })
         } else {
             None
         };
@@ -281,17 +271,14 @@ impl AppState {
     }
 
     pub fn dialog_toggle_boolean(&mut self) {
-        if let Some(dialog) = &mut self.dialog {
-            if let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type {
-                if let DialogFocus::Field(idx) = *focus {
-                    if let Some(field) = fields.get_mut(idx) {
-                        if let InputType::Boolean { value } = &mut field.input_type {
-                            *value = !*value;
-                            field.value = value.to_string();
-                        }
-                    }
-                }
-            }
+        if let Some(dialog) = &mut self.dialog
+            && let DialogType::Input { fields, focus, .. } = &mut dialog.dialog_type
+            && let DialogFocus::Field(idx) = *focus
+            && let Some(field) = fields.get_mut(idx)
+            && let InputType::Boolean { value } = &mut field.input_type
+        {
+            *value = !*value;
+            field.value = value.to_string();
         }
     }
 }

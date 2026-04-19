@@ -286,11 +286,11 @@ impl AppState {
     }
 
     pub fn maybe_clear_notification(&mut self) {
-        if let Some(time) = self.notification_time {
-            if Instant::now().duration_since(time) > Duration::from_secs(3) {
-                self.notification = None;
-                self.notification_time = None;
-            }
+        if let Some(time) = self.notification_time
+            && Instant::now().duration_since(time) > Duration::from_secs(3)
+        {
+            self.notification = None;
+            self.notification_time = None;
         }
     }
 
@@ -299,10 +299,10 @@ impl AppState {
             return false;
         }
 
-        if let Some(last_load) = self.last_action_load {
-            if Instant::now().duration_since(last_load) < self.action_load_debounce {
-                return false;
-            }
+        if let Some(last_load) = self.last_action_load
+            && Instant::now().duration_since(last_load) < self.action_load_debounce
+        {
+            return false;
         }
 
         true
@@ -597,38 +597,33 @@ impl AppState {
     }
 
     pub fn dialog_select_dropdown_option(&mut self) {
-        if let Some(dialog) = self.dialog.take() {
-            if let DialogType::DropdownSelection {
+        if let Some(dialog) = self.dialog.take()
+            && let DialogType::DropdownSelection {
                 filtered_options,
                 selected,
                 target_field_index,
                 ..
             } = dialog.dialog_type
-            {
-                if !filtered_options.is_empty() && selected < filtered_options.len() {
-                    let selected_value = filtered_options[selected].clone();
+            && !filtered_options.is_empty()
+            && selected < filtered_options.len()
+        {
+            let selected_value = filtered_options[selected].clone();
 
-                    // Restore the input dialog and update the field value
-                    if let Some(mut restored_dialog) = self.previous_dialog.take() {
-                        if let DialogType::Input { ref mut fields, .. } =
-                            restored_dialog.dialog_type
-                        {
-                            if let Some(field) = fields.get_mut(target_field_index) {
-                                field.value = selected_value;
-                                // Update the selected index in the dropdown/choice (not applicable to Boolean)
-                                if let InputType::Dropdown { options, selected }
-                                | InputType::Choice { options, selected } = &mut field.input_type
-                                {
-                                    *selected = options
-                                        .iter()
-                                        .position(|opt| opt == &field.value)
-                                        .unwrap_or(0);
-                                }
-                            }
-                        }
-                        self.dialog = Some(restored_dialog);
+            if let Some(mut restored_dialog) = self.previous_dialog.take() {
+                if let DialogType::Input { ref mut fields, .. } = restored_dialog.dialog_type
+                    && let Some(field) = fields.get_mut(target_field_index)
+                {
+                    field.value = selected_value;
+                    if let InputType::Dropdown { options, selected }
+                    | InputType::Choice { options, selected } = &mut field.input_type
+                    {
+                        *selected = options
+                            .iter()
+                            .position(|opt| opt == &field.value)
+                            .unwrap_or(0);
                     }
                 }
+                self.dialog = Some(restored_dialog);
             }
         }
     }

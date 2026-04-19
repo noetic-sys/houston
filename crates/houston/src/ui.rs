@@ -12,11 +12,11 @@ use ratatui::prelude::*;
 pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
     // Check if we're in zoomed mode for the log viewer
     // If zoomed on Logs panel AND log_viewer exists, render full-screen
-    if app.window_manager.zoomed() == Some(PanelId::Logs) {
-        if let Some(log_viewer) = &app.log_viewer {
-            render_log_viewer(f, log_viewer);
-            return;
-        }
+    if app.window_manager.zoomed() == Some(PanelId::Logs)
+        && let Some(log_viewer) = &app.log_viewer
+    {
+        render_log_viewer(f, log_viewer);
+        return;
     }
 
     // Main layout: header, content, footer
