@@ -10,8 +10,8 @@ mod ui;
 use events::handle_key_event;
 use ui::render_ui;
 
-/// Detect the current git repo name from `git remote get-url origin`.
-/// Returns just the repo name (e.g. "houston" from "git@github.com:org/houston.git").
+/// Detect the current git repo as "owner/repo" from `git remote get-url origin`.
+/// Handles both SSH (git@github.com:owner/repo.git) and HTTPS formats.
 fn detect_local_repo() -> Option<String> {
     let output = std::process::Command::new("git")
         .args(["remote", "get-url", "origin"])
@@ -20,10 +20,17 @@ fn detect_local_repo() -> Option<String> {
         .filter(|o| o.status.success())?;
     let url = String::from_utf8(output.stdout).ok()?;
     let url = url.trim();
-    // Strip trailing .git
     let url = url.strip_suffix(".git").unwrap_or(url);
-    // Extract last path component (works for both https and ssh URLs)
-    url.split(['/', ':']).next_back().map(|s| s.to_string())
+    if !url.starts_with("https")
+        && let Some(path) = url.split(':').next_back()
+    {
+        // SSH: git@github.com:owner/repo
+        Some(path.to_string())
+    } else {
+        // HTTPS: https://github.com/owner/repo
+        let parts: Vec<&str> = url.split('/').collect();
+        (parts.len() >= 2).then(|| format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1]))
+    }
 }
 
 fn get_github_token() -> Option<String> {
