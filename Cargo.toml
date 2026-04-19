@@ -9,13 +9,18 @@ edition = "2024"
 license = "MIT"
 readme = "README.md"
 version = "0.1.9"
-repository = "https://www.github.com/kasandell/houston"
-authors = [
-    "Kyle Sandell"
-]
-description = "Houston"
+repository = "https://github.com/kasandell/houston"
+homepage = "https://github.com/kasandell/houston"
+authors = ["Kyle Sandell <kasandell@gmail.com>"]
+description = "Terminal UI for managing GitHub Actions workflows and deployments"
+keywords = ["tui", "github", "cli", "devops", "terminal"]
+categories = ["command-line-utilities", "development-tools"]
 
 
 
 [workspace.dependencies]
 ratatui = "0.29.0"
+
+[profile.dist]
+inherits = "release"
+lto = "thin"
