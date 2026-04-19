@@ -117,43 +117,42 @@ impl GitHubProvider {
             .get("on")
             .and_then(|on| on.get("workflow_dispatch"))
             .and_then(|wd| wd.get("inputs"))
+            && let Some(map) = inputs.as_mapping()
         {
-            if let Some(map) = inputs.as_mapping() {
-                for (k, v) in map {
-                    let name = k.as_str().unwrap_or("").to_string();
-                    let required = v.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
-                    let description = v
-                        .get("description")
-                        .and_then(|d| d.as_str())
-                        .map(|s| s.to_string());
-                    let default = v
-                        .get("default")
-                        .and_then(|d| d.as_str())
-                        .map(|s| s.to_string());
-                    let input_type = v
-                        .get("type")
-                        .and_then(|t| t.as_str())
-                        .map(|s| s.to_string());
-                    let options = v.get("options").and_then(|o| {
-                        if let serde_yaml::Value::Sequence(seq) = o {
-                            Some(
-                                seq.into_iter()
-                                    .map(|s| s.as_str().unwrap_or("").to_string())
-                                    .collect(),
-                            )
-                        } else {
-                            None
-                        }
-                    });
-                    fields.push(WorkflowInputField {
-                        name,
-                        required,
-                        description,
-                        default,
-                        input_type,
-                        options,
-                    });
-                }
+            for (k, v) in map {
+                let name = k.as_str().unwrap_or("").to_string();
+                let required = v.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
+                let description = v
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .map(|s| s.to_string());
+                let default = v
+                    .get("default")
+                    .and_then(|d| d.as_str())
+                    .map(|s| s.to_string());
+                let input_type = v
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string());
+                let options = v.get("options").and_then(|o| {
+                    if let serde_yaml::Value::Sequence(seq) = o {
+                        Some(
+                            seq.iter()
+                                .map(|s| s.as_str().unwrap_or("").to_string())
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    }
+                });
+                fields.push(WorkflowInputField {
+                    name,
+                    required,
+                    description,
+                    default,
+                    input_type,
+                    options,
+                });
             }
         }
 
@@ -284,23 +283,23 @@ impl VcsProvider for GitHubProvider {
         match response {
             Ok(workflows_json) => {
                 // Parse the workflows from the response
-                if let Some(workflows) = workflows_json.get("workflows") {
-                    if let Some(workflows_array) = workflows.as_array() {
-                        let actions: Vec<Action> = workflows_array
-                            .iter()
-                            .filter_map(|w| {
-                                let name = w.get("name")?.as_str()?;
-                                let path = w.get("path")?.as_str();
-                                let id = w.get("id")?.as_u64()?.to_string();
-                                Some(Action {
-                                    name: name.to_string(),
-                                    description: path.map(|p| format!("Workflow: {}", p)),
-                                    workflow_id: id,
-                                })
+                if let Some(workflows) = workflows_json.get("workflows")
+                    && let Some(workflows_array) = workflows.as_array()
+                {
+                    let actions: Vec<Action> = workflows_array
+                        .iter()
+                        .filter_map(|w| {
+                            let name = w.get("name")?.as_str()?;
+                            let path = w.get("path")?.as_str();
+                            let id = w.get("id")?.as_u64()?.to_string();
+                            Some(Action {
+                                name: name.to_string(),
+                                description: path.map(|p| format!("Workflow: {}", p)),
+                                workflow_id: id,
                             })
-                            .collect();
-                        return Ok(actions);
-                    }
+                        })
+                        .collect();
+                    return Ok(actions);
                 }
                 Ok(vec![])
             }
