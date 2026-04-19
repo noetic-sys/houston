@@ -10,6 +10,22 @@ mod ui;
 use events::handle_key_event;
 use ui::render_ui;
 
+/// Detect the current git repo name from `git remote get-url origin`.
+/// Returns just the repo name (e.g. "houston" from "git@github.com:org/houston.git").
+fn detect_local_repo() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let url = String::from_utf8(output.stdout).ok()?;
+    let url = url.trim();
+    // Strip trailing .git
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    // Extract last path component (works for both https and ssh URLs)
+    url.split(['/', ':']).next_back().map(|s| s.to_string())
+}
+
 fn get_github_token() -> Option<String> {
     if let Ok(token) = std::env::var("GITHUB_TOKEN")
         && !token.is_empty()
@@ -39,7 +55,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             vec!["houston".into(), "test-repo".into()]
         });
 
+    let local_repo = detect_local_repo();
     let mut app = AppState::new(repos, provider);
+
+    // Pre-select the repo matching the current directory's git remote
+    if let Some(repo) = local_repo
+        && let Some(idx) = app.filtered_repos.iter().position(|r| r == &repo)
+    {
+        app.selected_repo = idx;
+    }
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(io::stdout(), crossterm::terminal::EnterAlternateScreen)?;
