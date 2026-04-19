@@ -105,7 +105,7 @@ When a workflow has `workflow_dispatch` inputs, Houston shows a form automatical
 Requires Rust stable (1.75+).
 
 ```sh
-git clone https://github.com/kasandell/houston
+git clone https://github.com/noetic-sys/houston
 cd houston
 cargo build --release
 # binary at target/release/houston
