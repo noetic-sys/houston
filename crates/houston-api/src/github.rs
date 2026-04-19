@@ -1,10 +1,13 @@
-use crate::{VcsProvider, Repo, Tag, Branch, Action, ActionRun, JobInfo, JobStep, DeploymentInfo, ProviderError};
+use crate::{
+    Action, ActionRun, Branch, DeploymentInfo, JobInfo, JobStep, ProviderError, Repo, Tag,
+    VcsProvider,
+};
 use async_trait::async_trait;
+use base64::Engine;
 use octocrab::Octocrab;
 use octocrab::models::Repository;
 use serde::{Deserialize, Serialize};
 use serde_json;
-use base64::Engine;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -50,55 +53,106 @@ impl GitHubProvider {
         } else if let Some(user) = &self.user {
             Ok((user.clone(), repo.to_string()))
         } else {
-            let user = self.client.current().user().await
+            let user = self
+                .client
+                .current()
+                .user()
+                .await
                 .map_err(|e| ProviderError::Api(e.to_string()))?;
             Ok((user.login, repo.to_string()))
         }
     }
 
-    pub async fn fetch_workflow_inputs(&self, repo: &str, workflow_id: &str) -> Result<Vec<WorkflowInputField>, ProviderError> {
+    pub async fn fetch_workflow_inputs(
+        &self,
+        repo: &str,
+        workflow_id: &str,
+    ) -> Result<Vec<WorkflowInputField>, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
 
         // Get workflow metadata to find the path
-        let workflow: serde_json::Value = self.client
-            .get(format!("/repos/{}/{}/actions/workflows/{}", owner, repo_name, workflow_id), None::<&()>)
+        let workflow: serde_json::Value = self
+            .client
+            .get(
+                format!(
+                    "/repos/{}/{}/actions/workflows/{}",
+                    owner, repo_name, workflow_id
+                ),
+                None::<&()>,
+            )
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
 
-        let path = workflow.get("path").and_then(|v| v.as_str()).ok_or_else(|| ProviderError::Api("No workflow path found".to_string()))?;
+        let path = workflow
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ProviderError::Api("No workflow path found".to_string()))?;
 
         // Get the file content (YAML)
-        let file: serde_json::Value = self.client
-            .get(format!("/repos/{}/{}/contents/{}", owner, repo_name, path), None::<&()>)
+        let file: serde_json::Value = self
+            .client
+            .get(
+                format!("/repos/{}/{}/contents/{}", owner, repo_name, path),
+                None::<&()>,
+            )
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
 
-        let content_b64 = file.get("content").and_then(|v| v.as_str()).ok_or_else(|| ProviderError::Api("No workflow content found".to_string()))?;
+        let content_b64 = file
+            .get("content")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ProviderError::Api("No workflow content found".to_string()))?;
         let content = base64::engine::general_purpose::STANDARD
             .decode(content_b64.replace('\n', ""))
             .map_err(|e| ProviderError::Api(format!("Base64 decode error: {}", e)))?;
-        let yaml_str = String::from_utf8(content).map_err(|e| ProviderError::Api(format!("UTF-8 decode error: {}", e)))?;
+        let yaml_str = String::from_utf8(content)
+            .map_err(|e| ProviderError::Api(format!("UTF-8 decode error: {}", e)))?;
 
         // Parse YAML for inputs
-        let yaml: serde_yaml::Value = serde_yaml::from_str(&yaml_str).map_err(|e| ProviderError::Api(format!("YAML parse error: {}", e)))?;
+        let yaml: serde_yaml::Value = serde_yaml::from_str(&yaml_str)
+            .map_err(|e| ProviderError::Api(format!("YAML parse error: {}", e)))?;
         let mut fields = Vec::new();
 
-        if let Some(inputs) = yaml.get("on").and_then(|on| on.get("workflow_dispatch")).and_then(|wd| wd.get("inputs")) {
+        if let Some(inputs) = yaml
+            .get("on")
+            .and_then(|on| on.get("workflow_dispatch"))
+            .and_then(|wd| wd.get("inputs"))
+        {
             if let Some(map) = inputs.as_mapping() {
                 for (k, v) in map {
                     let name = k.as_str().unwrap_or("").to_string();
                     let required = v.get("required").and_then(|r| r.as_bool()).unwrap_or(false);
-                    let description = v.get("description").and_then(|d| d.as_str()).map(|s| s.to_string());
-                    let default = v.get("default").and_then(|d| d.as_str()).map(|s| s.to_string());
-                    let input_type = v.get("type").and_then(|t| t.as_str()).map(|s| s.to_string());
+                    let description = v
+                        .get("description")
+                        .and_then(|d| d.as_str())
+                        .map(|s| s.to_string());
+                    let default = v
+                        .get("default")
+                        .and_then(|d| d.as_str())
+                        .map(|s| s.to_string());
+                    let input_type = v
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .map(|s| s.to_string());
                     let options = v.get("options").and_then(|o| {
                         if let serde_yaml::Value::Sequence(seq) = o {
-                            Some(seq.into_iter().map(|s| s.as_str().unwrap_or("").to_string()).collect())
+                            Some(
+                                seq.into_iter()
+                                    .map(|s| s.as_str().unwrap_or("").to_string())
+                                    .collect(),
+                            )
                         } else {
                             None
                         }
                     });
-                    fields.push(WorkflowInputField { name, required, description, default, input_type, options });
+                    fields.push(WorkflowInputField {
+                        name,
+                        required,
+                        description,
+                        default,
+                        input_type,
+                        options,
+                    });
                 }
             }
         }
@@ -115,16 +169,33 @@ impl VcsProvider for GitHubProvider {
 
         loop {
             let page_repos: Vec<Repository> = if let Some(org) = &self.org {
-                let resp = self.client.orgs(org).list_repos().per_page(100).page(page).send().await
+                let resp = self
+                    .client
+                    .orgs(org)
+                    .list_repos()
+                    .per_page(100)
+                    .page(page)
+                    .send()
+                    .await
                     .map_err(|e| ProviderError::Api(e.to_string()))?;
                 resp.items
             } else if let Some(user) = &self.user {
-                let params = RepoListParams { per_page: 100, page };
-                self.client.get(format!("/users/{}/repos", user), Some(&params)).await
+                let params = RepoListParams {
+                    per_page: 100,
+                    page,
+                };
+                self.client
+                    .get(format!("/users/{}/repos", user), Some(&params))
+                    .await
                     .map_err(|e| ProviderError::Api(e.to_string()))?
             } else {
-                let params = RepoListParams { per_page: 100, page };
-                self.client.get("/user/repos", Some(&params)).await
+                let params = RepoListParams {
+                    per_page: 100,
+                    page,
+                };
+                self.client
+                    .get("/user/repos", Some(&params))
+                    .await
                     .map_err(|e| ProviderError::Api(e.to_string()))?
             };
 
@@ -148,43 +219,66 @@ impl VcsProvider for GitHubProvider {
 
     async fn list_tags(&self, repo: &str) -> Result<Vec<Tag>, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
-        let tags = self.client.repos(&owner, &repo_name).list_tags().per_page(100).send().await
+        let tags = self
+            .client
+            .repos(&owner, &repo_name)
+            .list_tags()
+            .per_page(100)
+            .send()
+            .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
-        Ok(tags.items.into_iter().map(|t| Tag { name: t.name }).collect())
+        Ok(tags
+            .items
+            .into_iter()
+            .map(|t| Tag { name: t.name })
+            .collect())
     }
 
     async fn list_branches(&self, repo: &str) -> Result<Vec<Branch>, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
 
         // Get repo info to find default branch
-        let repo_info: serde_json::Value = self.client
+        let repo_info: serde_json::Value = self
+            .client
             .get(format!("/repos/{}/{}", owner, repo_name), None::<&()>)
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
 
-        let default_branch = repo_info.get("default_branch")
+        let default_branch = repo_info
+            .get("default_branch")
             .and_then(|v| v.as_str())
             .unwrap_or("main")
             .to_string();
 
         // Get branches
-        let branches: Vec<serde_json::Value> = self.client
-            .get(format!("/repos/{}/{}/branches?per_page=100", owner, repo_name), None::<&()>)
+        let branches: Vec<serde_json::Value> = self
+            .client
+            .get(
+                format!("/repos/{}/{}/branches?per_page=100", owner, repo_name),
+                None::<&()>,
+            )
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
 
-        Ok(branches.iter().filter_map(|b| {
-            let name = b.get("name")?.as_str()?.to_string();
-            let is_default = name == default_branch;
-            Some(Branch { name, is_default })
-        }).collect())
+        Ok(branches
+            .iter()
+            .filter_map(|b| {
+                let name = b.get("name")?.as_str()?.to_string();
+                let is_default = name == default_branch;
+                Some(Branch { name, is_default })
+            })
+            .collect())
     }
 
     async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
 
-        let response: Result<serde_json::Value, _> = self.client
-            .get(format!("/repos/{}/{}/actions/workflows", owner, repo_name), None::<&()>)
+        let response: Result<serde_json::Value, _> = self
+            .client
+            .get(
+                format!("/repos/{}/{}/actions/workflows", owner, repo_name),
+                None::<&()>,
+            )
             .await;
 
         match response {
@@ -221,12 +315,24 @@ impl VcsProvider for GitHubProvider {
         }
     }
 
-    async fn execute_action(&self, repo: &str, action: &str, git_ref: &str) -> Result<ActionRun, ProviderError> {
+    async fn execute_action(
+        &self,
+        repo: &str,
+        action: &str,
+        git_ref: &str,
+    ) -> Result<ActionRun, ProviderError> {
         // Execute workflow without inputs
-        self.execute_action_with_inputs(repo, action, git_ref, &HashMap::new()).await
+        self.execute_action_with_inputs(repo, action, git_ref, &HashMap::new())
+            .await
     }
 
-    async fn execute_action_with_inputs(&self, repo: &str, action: &str, git_ref: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError> {
+    async fn execute_action_with_inputs(
+        &self,
+        repo: &str,
+        action: &str,
+        git_ref: &str,
+        inputs: &HashMap<String, String>,
+    ) -> Result<ActionRun, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
 
         // Prepare the payload for workflow dispatch
@@ -237,15 +343,23 @@ impl VcsProvider for GitHubProvider {
         // Add inputs if provided
         if !inputs.is_empty() {
             payload["inputs"] = serde_json::Value::Object(
-                inputs.iter()
+                inputs
+                    .iter()
                     .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-                    .collect()
+                    .collect(),
             );
         }
 
         // Trigger workflow dispatch
-        let response: Result<serde_json::Value, _> = self.client
-            .post(format!("/repos/{}/{}/actions/workflows/{}/dispatches", owner, repo_name, action), Some(&payload))
+        let response: Result<serde_json::Value, _> = self
+            .client
+            .post(
+                format!(
+                    "/repos/{}/{}/actions/workflows/{}/dispatches",
+                    owner, repo_name, action
+                ),
+                Some(&payload),
+            )
             .await;
 
         match response {
@@ -261,40 +375,64 @@ impl VcsProvider for GitHubProvider {
                     branch: Some(git_ref.to_string()),
                 })
             }
-            Err(e) => Err(ProviderError::Api(e.to_string()))
+            Err(e) => Err(ProviderError::Api(e.to_string())),
         }
     }
 
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
 
-        let runs_response: serde_json::Value = self.client
-            .get(format!("/repos/{}/{}/actions/runs?per_page=20", owner, repo_name), None::<&()>)
+        let runs_response: serde_json::Value = self
+            .client
+            .get(
+                format!("/repos/{}/{}/actions/runs?per_page=20", owner, repo_name),
+                None::<&()>,
+            )
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
 
-        let runs = runs_response.get("workflow_runs")
+        let runs = runs_response
+            .get("workflow_runs")
             .and_then(|r| r.as_array())
             .map(|runs_array| {
-                runs_array.iter().filter_map(|run| {
-                    let id = run.get("id")?.as_u64()?.to_string();
-                    let workflow_name = run.get("name").and_then(|n| n.as_str()).unwrap_or("Unknown").to_string();
-                    let status = run.get("status")?.as_str()?.to_string();
-                    let conclusion = run.get("conclusion").and_then(|c| c.as_str()).map(|s| s.to_string());
-                    let started_at = run.get("created_at").and_then(|t| t.as_str()).map(|s| s.to_string());
-                    let finished_at = run.get("updated_at").and_then(|t| t.as_str()).map(|s| s.to_string());
-                    let branch = run.get("head_branch").and_then(|b| b.as_str()).map(|s| s.to_string());
+                runs_array
+                    .iter()
+                    .filter_map(|run| {
+                        let id = run.get("id")?.as_u64()?.to_string();
+                        let workflow_name = run
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("Unknown")
+                            .to_string();
+                        let status = run.get("status")?.as_str()?.to_string();
+                        let conclusion = run
+                            .get("conclusion")
+                            .and_then(|c| c.as_str())
+                            .map(|s| s.to_string());
+                        let started_at = run
+                            .get("created_at")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string());
+                        let finished_at = run
+                            .get("updated_at")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string());
+                        let branch = run
+                            .get("head_branch")
+                            .and_then(|b| b.as_str())
+                            .map(|s| s.to_string());
 
-                    Some(ActionRun {
-                        id,
-                        workflow_name,
-                        status,
-                        conclusion,
-                        started_at,
-                        finished_at,
-                        branch,
+                        Some(ActionRun {
+                            id,
+                            workflow_name,
+                            status,
+                            conclusion,
+                            started_at,
+                            finished_at,
+                            branch,
+                        })
                     })
-                }).collect()
+                    .collect()
             })
             .unwrap_or_default();
 
@@ -304,41 +442,68 @@ impl VcsProvider for GitHubProvider {
     async fn get_run_jobs(&self, repo: &str, run_id: &str) -> Result<Vec<JobInfo>, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
 
-        let jobs_response: serde_json::Value = self.client
-            .get(format!("/repos/{}/{}/actions/runs/{}/jobs", owner, repo_name, run_id), None::<&()>)
+        let jobs_response: serde_json::Value = self
+            .client
+            .get(
+                format!(
+                    "/repos/{}/{}/actions/runs/{}/jobs",
+                    owner, repo_name, run_id
+                ),
+                None::<&()>,
+            )
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
 
-        let jobs = jobs_response.get("jobs")
+        let jobs = jobs_response
+            .get("jobs")
             .and_then(|j| j.as_array())
             .map(|jobs_array| {
-                jobs_array.iter().filter_map(|job| {
-                    let id = job.get("id")?.as_u64()?;
-                    let name = job.get("name")?.as_str()?.to_string();
-                    let status = job.get("status")?.as_str()?.to_string();
-                    let conclusion = job.get("conclusion").and_then(|c| c.as_str()).map(|s| s.to_string());
+                jobs_array
+                    .iter()
+                    .filter_map(|job| {
+                        let id = job.get("id")?.as_u64()?;
+                        let name = job.get("name")?.as_str()?.to_string();
+                        let status = job.get("status")?.as_str()?.to_string();
+                        let conclusion = job
+                            .get("conclusion")
+                            .and_then(|c| c.as_str())
+                            .map(|s| s.to_string());
 
-                    // Parse steps
-                    let steps = job.get("steps")
-                        .and_then(|s| s.as_array())
-                        .map(|steps_array| {
-                            steps_array.iter().filter_map(|step| {
-                                let step_name = step.get("name")?.as_str()?.to_string();
-                                let step_status = step.get("status")?.as_str()?.to_string();
-                                let step_conclusion = step.get("conclusion").and_then(|c| c.as_str()).map(|s| s.to_string());
-                                let step_number = step.get("number")?.as_u64()?;
-                                Some(JobStep {
-                                    name: step_name,
-                                    status: step_status,
-                                    conclusion: step_conclusion,
-                                    number: step_number,
-                                })
-                            }).collect()
+                        // Parse steps
+                        let steps = job
+                            .get("steps")
+                            .and_then(|s| s.as_array())
+                            .map(|steps_array| {
+                                steps_array
+                                    .iter()
+                                    .filter_map(|step| {
+                                        let step_name = step.get("name")?.as_str()?.to_string();
+                                        let step_status = step.get("status")?.as_str()?.to_string();
+                                        let step_conclusion = step
+                                            .get("conclusion")
+                                            .and_then(|c| c.as_str())
+                                            .map(|s| s.to_string());
+                                        let step_number = step.get("number")?.as_u64()?;
+                                        Some(JobStep {
+                                            name: step_name,
+                                            status: step_status,
+                                            conclusion: step_conclusion,
+                                            number: step_number,
+                                        })
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+
+                        Some(JobInfo {
+                            id,
+                            name,
+                            status,
+                            conclusion,
+                            steps,
                         })
-                        .unwrap_or_default();
-
-                    Some(JobInfo { id, name, status, conclusion, steps })
-                }).collect()
+                    })
+                    .collect()
             })
             .unwrap_or_default();
 
@@ -348,14 +513,16 @@ impl VcsProvider for GitHubProvider {
     async fn list_deployments(&self, repo: &str) -> Result<Vec<DeploymentInfo>, ProviderError> {
         let (owner, repo_name) = self.parse_repo(repo).await?;
 
-        let deployments_response: serde_json::Value = self.client
-            .get(format!("/repos/{}/{}/deployments?per_page=50", owner, repo_name), None::<&()>)
+        let deployments_response: serde_json::Value = self
+            .client
+            .get(
+                format!("/repos/{}/{}/deployments?per_page=50", owner, repo_name),
+                None::<&()>,
+            )
             .await
             .map_err(|e| ProviderError::Api(e.to_string()))?;
 
-        let deployments_array = deployments_response.as_array()
-            .cloned()
-            .unwrap_or_default();
+        let deployments_array = deployments_response.as_array().cloned().unwrap_or_default();
 
         let mut deployments = Vec::new();
 
@@ -364,42 +531,50 @@ impl VcsProvider for GitHubProvider {
                 Some(id) => id,
                 None => continue,
             };
-            let environment = deployment.get("environment")
+            let environment = deployment
+                .get("environment")
                 .and_then(|e| e.as_str())
                 .unwrap_or("unknown")
                 .to_string();
-            let sha = deployment.get("sha")
+            let sha = deployment
+                .get("sha")
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string();
-            let ref_name = deployment.get("ref")
+            let ref_name = deployment
+                .get("ref")
                 .and_then(|r| r.as_str())
                 .unwrap_or("")
                 .to_string();
-            let created_at = deployment.get("created_at")
+            let created_at = deployment
+                .get("created_at")
                 .and_then(|c| c.as_str())
                 .unwrap_or("")
                 .to_string();
-            let creator = deployment.get("creator")
+            let creator = deployment
+                .get("creator")
                 .and_then(|c| c.get("login"))
                 .and_then(|l| l.as_str())
                 .unwrap_or("unknown")
                 .to_string();
 
             // Get deployment status
-            let status_response: Result<serde_json::Value, _> = self.client
-                .get(format!("/repos/{}/{}/deployments/{}/statuses", owner, repo_name, id), None::<&()>)
+            let status_response: Result<serde_json::Value, _> = self
+                .client
+                .get(
+                    format!("/repos/{}/{}/deployments/{}/statuses", owner, repo_name, id),
+                    None::<&()>,
+                )
                 .await;
 
             let status = match status_response {
-                Ok(statuses) => {
-                    statuses.as_array()
-                        .and_then(|arr| arr.first())
-                        .and_then(|s| s.get("state"))
-                        .and_then(|state| state.as_str())
-                        .unwrap_or("unknown")
-                        .to_string()
-                }
+                Ok(statuses) => statuses
+                    .as_array()
+                    .and_then(|arr| arr.first())
+                    .and_then(|s| s.get("state"))
+                    .and_then(|state| state.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
                 Err(_) => "unknown".to_string(),
             };
 

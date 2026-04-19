@@ -53,15 +53,17 @@ fn render_full(
     let rows: Vec<Row> = if loading && runs.is_empty() {
         vec![Row::new(vec![Cell::from("Loading...")]).style(Style::default().fg(Color::DarkGray))]
     } else if runs.is_empty() {
-        vec![Row::new(vec![Cell::from("No runs found")]).style(Style::default().fg(Color::DarkGray))]
+        vec![
+            Row::new(vec![Cell::from("No runs found")]).style(Style::default().fg(Color::DarkGray)),
+        ]
     } else {
         runs.iter()
             .enumerate()
             .map(|(i, run)| {
                 let (icon, status_color) = status_style(run);
                 let status_text = run.conclusion.as_deref().unwrap_or(&run.status);
-                let status_cell =
-                    Cell::from(format!("{} {}", icon, status_text)).style(Style::default().fg(status_color));
+                let status_cell = Cell::from(format!("{} {}", icon, status_text))
+                    .style(Style::default().fg(status_color));
 
                 let branch_display = run.branch.as_deref().unwrap_or("-");
                 let started = format_time(&run.started_at);

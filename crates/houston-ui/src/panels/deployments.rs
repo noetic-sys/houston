@@ -59,7 +59,9 @@ pub fn render_deployments_panel(
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    "━".repeat(20.min(ctx.area.width.saturating_sub(env_name.len() as u16 + 15) as usize)),
+                    "━".repeat(
+                        20.min(ctx.area.width.saturating_sub(env_name.len() as u16 + 15) as usize),
+                    ),
                     Style::default().fg(Color::DarkGray),
                 ),
             ]));

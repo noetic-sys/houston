@@ -90,8 +90,19 @@ pub trait VcsProvider: Send + Sync {
     async fn list_tags(&self, repo: &str) -> Result<Vec<Tag>, ProviderError>;
     async fn list_branches(&self, repo: &str) -> Result<Vec<Branch>, ProviderError>;
     async fn list_actions(&self, repo: &str) -> Result<Vec<Action>, ProviderError>;
-    async fn execute_action(&self, repo: &str, action: &str, git_ref: &str) -> Result<ActionRun, ProviderError>;
-    async fn execute_action_with_inputs(&self, repo: &str, action: &str, git_ref: &str, inputs: &HashMap<String, String>) -> Result<ActionRun, ProviderError>;
+    async fn execute_action(
+        &self,
+        repo: &str,
+        action: &str,
+        git_ref: &str,
+    ) -> Result<ActionRun, ProviderError>;
+    async fn execute_action_with_inputs(
+        &self,
+        repo: &str,
+        action: &str,
+        git_ref: &str,
+        inputs: &HashMap<String, String>,
+    ) -> Result<ActionRun, ProviderError>;
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError>;
     async fn get_run_jobs(&self, repo: &str, run_id: &str) -> Result<Vec<JobInfo>, ProviderError>;
     async fn list_deployments(&self, repo: &str) -> Result<Vec<DeploymentInfo>, ProviderError>;

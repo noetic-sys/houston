@@ -1,17 +1,17 @@
-use ratatui::{prelude::*, widgets::*};
-use ratatui::text::{Span, Line};
-use houston_api::{Action, Tag};
 use houston_api::github::WorkflowInputField;
+use houston_api::{Action, Tag};
+use ratatui::text::{Line, Span};
+use ratatui::{prelude::*, widgets::*};
 
 // New panel system modules
-pub mod panel;
 pub mod layout;
-pub mod window_manager;
+pub mod panel;
 pub mod panels;
+pub mod window_manager;
 
 // Re-export key types from new modules
-pub use panel::{PanelId, PanelContext};
 pub use layout::{LayoutNode, PresetLayout, SplitDirection};
+pub use panel::{PanelContext, PanelId};
 pub use window_manager::WindowManager;
 
 // UI State Types
@@ -19,9 +19,17 @@ pub use window_manager::WindowManager;
 #[derive(Debug, Clone)]
 pub enum InputType {
     Text,
-    Dropdown { options: Vec<String>, selected: usize },
-    Choice { options: Vec<String>, selected: usize },
-    Boolean { value: bool },
+    Dropdown {
+        options: Vec<String>,
+        selected: usize,
+    },
+    Choice {
+        options: Vec<String>,
+        selected: usize,
+    },
+    Boolean {
+        value: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -115,7 +123,11 @@ pub fn render_repo_list_panel(
     let list = List::new(items)
         .block(Block::default().borders(Borders::ALL).title("Repositories"))
         .highlight_symbol("▶ ")
-        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
     state.select(Some(panel.selected));
     f.render_stateful_widget(list, area, state);
 }
@@ -139,9 +151,18 @@ pub fn render_repo_list_panel_with_title_and_style(
             .collect()
     };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title).border_style(style))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .border_style(style),
+        )
         .highlight_symbol("▶ ")
-        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        );
     if !panel.repos.is_empty() {
         state.select(Some(panel.selected));
     } else {
@@ -175,9 +196,18 @@ pub fn render_actions_panel(
             .collect()
     };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Actions").border_style(border_style))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Actions")
+                .border_style(border_style),
+        )
         .highlight_symbol("▶ ")
-        .highlight_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        );
     if !panel.actions.is_empty() {
         state.select(Some(panel.selected));
     } else {
@@ -204,9 +234,18 @@ pub fn render_tags_panel(
             .collect()
     };
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title("Tags").border_style(border_style))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Tags")
+                .border_style(border_style),
+        )
         .highlight_symbol("▶ ")
-        .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        .highlight_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
     if !panel.tags.is_empty() {
         state.select(Some(panel.selected));
     } else {
@@ -218,22 +257,31 @@ pub fn render_tags_panel(
 // Dialog Rendering
 pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
     match &dialog.dialog_type {
-        DialogType::Input { fields, focus, repo_name, action_name, is_confirmation } => {
+        DialogType::Input {
+            fields,
+            focus,
+            repo_name,
+            action_name,
+            is_confirmation,
+        } => {
             let area = centered_rect(70, 50, f.area());
             let mut lines = vec![];
-            
+
             if *is_confirmation {
                 // Confirmation dialog
                 lines.push(Line::from(Span::styled(
-                    format!("Are you sure you want to run '{}' on '{}'?", action_name, repo_name),
-                    Style::default().fg(Color::White)
+                    format!(
+                        "Are you sure you want to run '{}' on '{}'?",
+                        action_name, repo_name
+                    ),
+                    Style::default().fg(Color::White),
                 )));
                 lines.push(Line::from(""));
             } else {
                 // Input dialog - show fields
                 for (i, field) in fields.iter().enumerate() {
                     let is_focused = matches!(focus, DialogFocus::Field(idx) if *idx == i);
-                    
+
                     // Field name and description
                     let mut field_name = field.name.clone();
                     if field.required {
@@ -242,14 +290,16 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
                     if let Some(desc) = &field.description {
                         field_name.push_str(&format!(" ({})", desc));
                     }
-                    
+
                     let name_style = if is_focused {
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default().fg(Color::Gray)
                     };
                     lines.push(Line::from(Span::styled(field_name, name_style)));
-                    
+
                     // Field value display
                     let value_display = match &field.input_type {
                         InputType::Text => {
@@ -261,7 +311,11 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
                         }
                         InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
                             if is_focused {
-                                format!("▶ {} (Space to open selection, {} options)", field.value, options.len())
+                                format!(
+                                    "▶ {} (Space to open selection, {} options)",
+                                    field.value,
+                                    options.len()
+                                )
                             } else {
                                 format!("  {} (dropdown)", field.value)
                             }
@@ -275,7 +329,7 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
                             }
                         }
                     };
-                    
+
                     let value_style = if is_focused {
                         Style::default().fg(Color::White).bg(Color::Blue)
                     } else {
@@ -285,22 +339,30 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
                     lines.push(Line::from(""));
                 }
             }
-            
+
             // Add buttons
             lines.push(Line::from(""));
-            
+
             let confirm_style = if matches!(focus, DialogFocus::ConfirmButton) {
-                Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
             };
-            
+
             let cancel_style = if matches!(focus, DialogFocus::CancelButton) {
-                Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)
             };
-            
+
             let button_line = Line::from(vec![
                 Span::styled("  [", Style::default().fg(Color::Gray)),
                 Span::styled("Confirm", confirm_style),
@@ -310,19 +372,19 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
                 Span::styled("]", Style::default().fg(Color::Gray)),
             ]);
             lines.push(button_line);
-            
+
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "Tab/Shift+Tab: Navigate • Enter: Select • Escape: Cancel",
-                Style::default().fg(Color::Gray)
+                Style::default().fg(Color::Gray),
             )));
-            
+
             let title = if *is_confirmation {
                 "Confirm Action"
             } else {
                 "Workflow Inputs"
             };
-            
+
             let block = Block::default()
                 .title(title)
                 .borders(Borders::ALL)
@@ -333,82 +395,99 @@ pub fn render_dialog(f: &mut Frame, dialog: &DialogState) {
             f.render_widget(Clear, area); // Clear the area beneath the modal
             f.render_widget(para, area);
         }
-        DialogType::DropdownSelection { field_name, filtered_options, selected, search_query, scroll_offset, .. } => {
+        DialogType::DropdownSelection {
+            field_name,
+            filtered_options,
+            selected,
+            search_query,
+            scroll_offset,
+            ..
+        } => {
             let area = centered_rect(60, 70, f.area());
             let mut lines = vec![];
-            
+
             // Title and search info
             lines.push(Line::from(Span::styled(
                 format!("Select {}", field_name),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(""));
-            
+
             // Search query
             if !search_query.is_empty() {
                 lines.push(Line::from(Span::styled(
                     format!("Search: {}", search_query),
-                    Style::default().fg(Color::Cyan)
+                    Style::default().fg(Color::Cyan),
                 )));
             } else {
                 lines.push(Line::from(Span::styled(
                     "Search: (type to filter)",
-                    Style::default().fg(Color::Gray)
+                    Style::default().fg(Color::Gray),
                 )));
             }
             lines.push(Line::from(""));
-            
+
             // Calculate available space for options (total area minus header and footer)
             let available_height = area.height.saturating_sub(8); // Leave space for title, search, help, borders
             let max_visible_items = available_height as usize;
-            
+
             // Show scroll indicators if needed
             let total_items = filtered_options.len();
             let has_more_above = *scroll_offset > 0;
             let has_more_below = *scroll_offset + max_visible_items < total_items;
-            
+
             if has_more_above {
                 lines.push(Line::from(Span::styled(
                     "  ↑ More options above ↑",
-                    Style::default().fg(Color::Cyan)
+                    Style::default().fg(Color::Cyan),
                 )));
             }
-            
+
             // Options list (only show visible portion)
-            for (i, option) in filtered_options.iter().enumerate().skip(*scroll_offset).take(max_visible_items) {
+            for (i, option) in filtered_options
+                .iter()
+                .enumerate()
+                .skip(*scroll_offset)
+                .take(max_visible_items)
+            {
                 let style = if i == *selected {
-                    Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::White)
                 };
-                
+
                 let prefix = if i == *selected { "▶ " } else { "  " };
                 lines.push(Line::from(Span::styled(
                     format!("{}{}", prefix, option),
-                    style
+                    style,
                 )));
             }
-            
+
             if has_more_below {
                 lines.push(Line::from(Span::styled(
                     "  ↓ More options below ↓",
-                    Style::default().fg(Color::Cyan)
+                    Style::default().fg(Color::Cyan),
                 )));
             }
-            
+
             if filtered_options.is_empty() {
                 lines.push(Line::from(Span::styled(
                     "No matches found",
-                    Style::default().fg(Color::Red)
+                    Style::default().fg(Color::Red),
                 )));
             }
-            
+
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 "↑↓ or j/k: Navigate • Enter: Select • Escape: Cancel • Type: Search",
-                Style::default().fg(Color::Gray)
+                Style::default().fg(Color::Gray),
             )));
-            
+
             let block = Block::default()
                 .title("Select Option")
                 .borders(Borders::ALL)
@@ -450,30 +529,44 @@ pub fn render_header(
         let tick = (std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_millis() / 100) % 4;
+            .as_millis()
+            / 100)
+            % 4;
         match tick {
             0 => "◐",
             1 => "◓",
             2 => "◑",
             _ => "◒",
         }
-    } else { "" };
+    } else {
+        ""
+    };
 
     let repo_display = repo.unwrap_or("-");
 
     // Build header with stats
     let mut spans = vec![
-        Span::styled("⚡HOUSTON", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "⚡HOUSTON",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" │ ", Style::default().fg(Color::DarkGray)),
     ];
 
     // Current repo (truncated if needed)
     let repo_short = if repo_display.len() > 30 {
-        format!("...{}", &repo_display[repo_display.len()-27..])
+        format!("...{}", &repo_display[repo_display.len() - 27..])
     } else {
         repo_display.to_string()
     };
-    spans.push(Span::styled(repo_short, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    spans.push(Span::styled(
+        repo_short,
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    ));
 
     spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
 
@@ -482,36 +575,36 @@ pub fn render_header(
         PresetLayout::Repos => {
             spans.push(Span::styled(
                 format!("📦{}", stats.repo_count),
-                Style::default().fg(Color::White)
+                Style::default().fg(Color::White),
             ));
         }
         PresetLayout::Workflows => {
             spans.push(Span::styled(
                 format!("⚙️ {}", stats.workflow_count),
-                Style::default().fg(Color::White)
+                Style::default().fg(Color::White),
             ));
         }
         PresetLayout::Runs => {
             // Status summary: ✓ 5  ● 2  ✗ 1
             spans.push(Span::styled(
                 format!("✓{}", stats.runs_success),
-                Style::default().fg(Color::Green)
+                Style::default().fg(Color::Green),
             ));
             spans.push(Span::raw(" "));
             spans.push(Span::styled(
                 format!("●{}", stats.runs_pending),
-                Style::default().fg(Color::Yellow)
+                Style::default().fg(Color::Yellow),
             ));
             spans.push(Span::raw(" "));
             spans.push(Span::styled(
                 format!("✗{}", stats.runs_failed),
-                Style::default().fg(Color::Red)
+                Style::default().fg(Color::Red),
             ));
         }
         PresetLayout::Deployments => {
             spans.push(Span::styled(
                 format!("🌍{}", stats.deployments_count),
-                Style::default().fg(Color::White)
+                Style::default().fg(Color::White),
             ));
         }
         PresetLayout::Tags => {
@@ -523,7 +616,9 @@ pub fn render_header(
     spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
     spans.push(Span::styled(
         preset.name().to_uppercase(),
-        Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD),
     ));
 
     // Loading indicator
@@ -532,13 +627,19 @@ pub fn render_header(
         spans.push(Span::styled(loading, Style::default().fg(Color::Yellow)));
     }
 
-    let header = Paragraph::new(Line::from(spans))
-        .style(Style::default().bg(Color::Rgb(30, 30, 40)));
+    let header =
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Rgb(30, 30, 40)));
 
     f.render_widget(header, area);
 }
 
-pub fn render_footer(f: &mut Frame, area: Rect, preset: PresetLayout, notification: Option<&str>, _help_open: bool) {
+pub fn render_footer(
+    f: &mut Frame,
+    area: Rect,
+    preset: PresetLayout,
+    notification: Option<&str>,
+    _help_open: bool,
+) {
     // Show notification prominently if present
     if let Some(msg) = notification {
         let is_error = msg.to_lowercase().contains("fail") || msg.to_lowercase().contains("error");
@@ -549,7 +650,7 @@ pub fn render_footer(f: &mut Frame, area: Rect, preset: PresetLayout, notificati
         };
         let content = Line::from(Span::styled(
             format!(" {} ", msg),
-            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD)
+            Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD),
         ));
         f.render_widget(Paragraph::new(content), area);
         return;
@@ -570,16 +671,19 @@ pub fn render_footer(f: &mut Frame, area: Rect, preset: PresetLayout, notificati
         if p == preset {
             spans.push(Span::styled(
                 format!(" {}", key),
-                Style::default().fg(Color::Black).bg(Color::Cyan)
+                Style::default().fg(Color::Black).bg(Color::Cyan),
             ));
             spans.push(Span::styled(
                 format!(":{} ", name),
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(Color::Black)
+                    .bg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             ));
         } else {
             spans.push(Span::styled(
                 format!(" {}:{} ", key, name),
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(Color::DarkGray),
             ));
         }
     }
@@ -606,8 +710,14 @@ pub fn render_footer(f: &mut Frame, area: Rect, preset: PresetLayout, notificati
     };
 
     for (key, action) in shortcuts {
-        spans.push(Span::styled(format!(" {}", key), Style::default().fg(Color::Cyan)));
-        spans.push(Span::styled(format!(":{}", action), Style::default().fg(Color::DarkGray)));
+        spans.push(Span::styled(
+            format!(" {}", key),
+            Style::default().fg(Color::Cyan),
+        ));
+        spans.push(Span::styled(
+            format!(":{}", action),
+            Style::default().fg(Color::DarkGray),
+        ));
     }
 
     // Help hint
@@ -615,8 +725,8 @@ pub fn render_footer(f: &mut Frame, area: Rect, preset: PresetLayout, notificati
     spans.push(Span::styled(" ^C", Style::default().fg(Color::Cyan)));
     spans.push(Span::styled(":quit", Style::default().fg(Color::DarkGray)));
 
-    let footer = Paragraph::new(Line::from(spans))
-        .style(Style::default().bg(Color::Rgb(20, 20, 30)));
+    let footer =
+        Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Rgb(20, 20, 30)));
 
     f.render_widget(footer, area);
 }
@@ -664,32 +774,54 @@ pub fn render_log_viewer(f: &mut Frame, state: &LogViewerState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // Header
-            Constraint::Min(1),     // Content
-            Constraint::Length(1),  // Footer
+            Constraint::Length(1), // Header
+            Constraint::Min(1),    // Content
+            Constraint::Length(1), // Footer
         ])
         .split(area);
 
     // Header
-    let status_indicator = if state.loading { "● Loading..." } else { "✓ Loaded" };
+    let status_indicator = if state.loading {
+        "● Loading..."
+    } else {
+        "✓ Loaded"
+    };
     let header_text = vec![
         Span::styled("Run Details: ", Style::default().fg(Color::Cyan)),
-        Span::styled(&state.workflow_name, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            &state.workflow_name,
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(format!(" ({})", state.run_id)),
         Span::raw(" │ "),
-        Span::styled(status_indicator, Style::default().fg(if state.loading { Color::Yellow } else { Color::Green })),
+        Span::styled(
+            status_indicator,
+            Style::default().fg(if state.loading {
+                Color::Yellow
+            } else {
+                Color::Green
+            }),
+        ),
     ];
-    let header = Paragraph::new(Line::from(header_text))
-        .style(Style::default().bg(Color::DarkGray));
+    let header =
+        Paragraph::new(Line::from(header_text)).style(Style::default().bg(Color::DarkGray));
     f.render_widget(header, chunks[0]);
 
     // Build content lines
     let mut lines: Vec<Line> = Vec::new();
 
     if state.loading && state.jobs.is_empty() {
-        lines.push(Line::from(Span::styled("Loading...", Style::default().fg(Color::DarkGray))));
+        lines.push(Line::from(Span::styled(
+            "Loading...",
+            Style::default().fg(Color::DarkGray),
+        )));
     } else if state.jobs.is_empty() {
-        lines.push(Line::from(Span::styled("No jobs found", Style::default().fg(Color::DarkGray))));
+        lines.push(Line::from(Span::styled(
+            "No jobs found",
+            Style::default().fg(Color::DarkGray),
+        )));
     } else {
         for job in &state.jobs {
             // Job header
@@ -703,10 +835,15 @@ pub fn render_log_viewer(f: &mut Frame, state: &LogViewerState) {
 
             lines.push(Line::from(vec![
                 Span::styled(format!("{} ", job_icon), Style::default().fg(job_color)),
-                Span::styled(&job.name, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    &job.name,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(
                     format!(" ({})", job.conclusion.as_deref().unwrap_or(&job.status)),
-                    Style::default().fg(job_color)
+                    Style::default().fg(job_color),
                 ),
             ]));
 
@@ -732,9 +869,7 @@ pub fn render_log_viewer(f: &mut Frame, state: &LogViewerState) {
     }
 
     // Apply scroll offset
-    let visible_lines: Vec<Line> = lines.into_iter()
-        .skip(state.scroll_offset)
-        .collect();
+    let visible_lines: Vec<Line> = lines.into_iter().skip(state.scroll_offset).collect();
 
     let content = Paragraph::new(visible_lines)
         .block(Block::default().borders(Borders::ALL).title("Jobs & Steps"));
@@ -749,8 +884,7 @@ pub fn render_log_viewer(f: &mut Frame, state: &LogViewerState) {
         Span::styled("g/G", Style::default().fg(Color::Cyan)),
         Span::raw(":top/bottom"),
     ];
-    let footer = Paragraph::new(Line::from(footer_text))
-        .style(Style::default().bg(Color::Black));
+    let footer = Paragraph::new(Line::from(footer_text)).style(Style::default().bg(Color::Black));
     f.render_widget(footer, chunks[2]);
 }
 
@@ -760,7 +894,13 @@ pub fn render_log_viewer(f: &mut Frame, state: &LogViewerState) {
 
 use houston_api::ActionRun;
 
-pub fn render_runs_view(f: &mut Frame, area: Rect, runs: &[ActionRun], selected: usize, loading: bool) {
+pub fn render_runs_view(
+    f: &mut Frame,
+    area: Rect,
+    runs: &[ActionRun],
+    selected: usize,
+    loading: bool,
+) {
     // Header row
     let header = Row::new(vec![
         Cell::from("STATUS").style(Style::default().add_modifier(Modifier::BOLD)),
@@ -768,52 +908,67 @@ pub fn render_runs_view(f: &mut Frame, area: Rect, runs: &[ActionRun], selected:
         Cell::from("REF").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("STARTED").style(Style::default().add_modifier(Modifier::BOLD)),
         Cell::from("DURATION").style(Style::default().add_modifier(Modifier::BOLD)),
-    ]).height(1);
+    ])
+    .height(1);
 
     let rows: Vec<Row> = if loading && runs.is_empty() {
         vec![Row::new(vec![Cell::from("Loading...")]).style(Style::default().fg(Color::DarkGray))]
     } else if runs.is_empty() {
-        vec![Row::new(vec![Cell::from("No runs found")]).style(Style::default().fg(Color::DarkGray))]
+        vec![
+            Row::new(vec![Cell::from("No runs found")]).style(Style::default().fg(Color::DarkGray)),
+        ]
     } else {
-        runs.iter().enumerate().map(|(i, run)| {
-            let (icon, status_color) = match run.status.as_str() {
-                "completed" | "success" => ("✓", Color::Green),
-                "failure" | "failed" => ("✗", Color::Red),
-                "in_progress" | "queued" | "pending" | "waiting" => ("●", Color::Yellow),
-                "cancelled" => ("○", Color::DarkGray),
-                _ => match run.conclusion.as_deref() {
-                    Some("success") => ("✓", Color::Green),
-                    Some("failure") => ("✗", Color::Red),
-                    Some("cancelled") => ("○", Color::DarkGray),
-                    _ => ("?", Color::Gray),
-                }
-            };
+        runs.iter()
+            .enumerate()
+            .map(|(i, run)| {
+                let (icon, status_color) = match run.status.as_str() {
+                    "completed" | "success" => ("✓", Color::Green),
+                    "failure" | "failed" => ("✗", Color::Red),
+                    "in_progress" | "queued" | "pending" | "waiting" => ("●", Color::Yellow),
+                    "cancelled" => ("○", Color::DarkGray),
+                    _ => match run.conclusion.as_deref() {
+                        Some("success") => ("✓", Color::Green),
+                        Some("failure") => ("✗", Color::Red),
+                        Some("cancelled") => ("○", Color::DarkGray),
+                        _ => ("?", Color::Gray),
+                    },
+                };
 
-            let status_cell = Cell::from(format!("{} {}", icon, run.conclusion.as_deref().unwrap_or(&run.status)))
+                let status_cell = Cell::from(format!(
+                    "{} {}",
+                    icon,
+                    run.conclusion.as_deref().unwrap_or(&run.status)
+                ))
                 .style(Style::default().fg(status_color));
 
-            let branch_display = run.branch.as_deref().unwrap_or("-");
+                let branch_display = run.branch.as_deref().unwrap_or("-");
 
-            // Format started time (simplified - just show the time part)
-            let started = run.started_at.as_deref()
-                .and_then(|s| s.split('T').nth(1))
-                .and_then(|t| t.split('.').next())
-                .unwrap_or("-");
+                // Format started time (simplified - just show the time part)
+                let started = run
+                    .started_at
+                    .as_deref()
+                    .and_then(|s| s.split('T').nth(1))
+                    .and_then(|t| t.split('.').next())
+                    .unwrap_or("-");
 
-            let style = if i == selected {
-                Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
+                let style = if i == selected {
+                    Style::default()
+                        .bg(Color::DarkGray)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
 
-            Row::new(vec![
-                status_cell,
-                Cell::from(run.workflow_name.clone()),
-                Cell::from(branch_display.to_string()),
-                Cell::from(started.to_string()),
-                Cell::from("-"), // Duration would need calculation
-            ]).style(style)
-        }).collect()
+                Row::new(vec![
+                    status_cell,
+                    Cell::from(run.workflow_name.clone()),
+                    Cell::from(branch_display.to_string()),
+                    Cell::from(started.to_string()),
+                    Cell::from("-"), // Duration would need calculation
+                ])
+                .style(style)
+            })
+            .collect()
     };
 
     let widths = [
@@ -840,20 +995,26 @@ pub fn render_runs_view(f: &mut Frame, area: Rect, runs: &[ActionRun], selected:
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
     let popup_layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Percentage((100 - percent_y) / 2),
-            Constraint::Percentage(percent_y),
-            Constraint::Percentage((100 - percent_y) / 2),
-        ].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
         .split(r);
     let vertical = popup_layout[1];
     let popup_layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage((100 - percent_x) / 2),
-            Constraint::Percentage(percent_x),
-            Constraint::Percentage((100 - percent_x) / 2),
-        ].as_ref())
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
         .split(vertical);
     popup_layout[1]
 }
@@ -863,10 +1024,14 @@ pub fn determine_input_type(field: &WorkflowInputField, available_tags: &[String
     if let Some(input_type) = &field.input_type {
         match input_type.as_str() {
             "boolean" => {
-                let default_bool = field.default.as_ref()
+                let default_bool = field
+                    .default
+                    .as_ref()
                     .map(|s| s.to_lowercase() == "true")
                     .unwrap_or(false);
-                return InputType::Boolean { value: default_bool };
+                return InputType::Boolean {
+                    value: default_bool,
+                };
             }
             "choice" => {
                 if let Some(options) = &field.options {
@@ -894,12 +1059,13 @@ pub fn determine_input_type(field: &WorkflowInputField, available_tags: &[String
             }
         }
     }
-    
+
     // If no explicit type, use heuristics for common patterns
     let field_lower = field.name.to_lowercase();
-    
+
     // Check for version-related fields that might use tags
-    if field_lower.contains("version") || field_lower.contains("tag") || field_lower.contains("ref") {
+    if field_lower.contains("version") || field_lower.contains("tag") || field_lower.contains("ref")
+    {
         if !available_tags.is_empty() {
             return InputType::Dropdown {
                 options: available_tags.to_vec(),
@@ -907,20 +1073,26 @@ pub fn determine_input_type(field: &WorkflowInputField, available_tags: &[String
             };
         }
     }
-    
+
     // Default to text input
     InputType::Text
 }
 
 // Convert API WorkflowInputField to UI WorkflowInputField
-pub fn convert_workflow_input_field(input: WorkflowInputField, available_tags: &[String]) -> UIWorkflowInputField {
+pub fn convert_workflow_input_field(
+    input: WorkflowInputField,
+    available_tags: &[String],
+) -> UIWorkflowInputField {
     let input_type = determine_input_type(&input, available_tags);
     let default_value = input.default.unwrap_or_default();
-    
+
     let (final_input_type, final_value) = match input_type {
         InputType::Dropdown { options, .. } | InputType::Choice { options, .. } => {
             let selected = if !default_value.is_empty() {
-                options.iter().position(|opt| opt == &default_value).unwrap_or(0)
+                options
+                    .iter()
+                    .position(|opt| opt == &default_value)
+                    .unwrap_or(0)
             } else {
                 0
             };
@@ -932,9 +1104,9 @@ pub fn convert_workflow_input_field(input: WorkflowInputField, available_tags: &
             (InputType::Dropdown { options, selected }, value)
         }
         InputType::Boolean { value } => (InputType::Boolean { value }, default_value.to_string()),
-        _ => (input_type, default_value)
+        _ => (input_type, default_value),
     };
-    
+
     UIWorkflowInputField {
         name: input.name,
         value: final_value,
@@ -959,7 +1131,7 @@ mod tests {
             input_type: Some("boolean".to_string()),
             options: None,
         };
-        
+
         let input_type = determine_input_type(&field, &[]);
         match input_type {
             InputType::Boolean { value } => {
@@ -977,9 +1149,13 @@ mod tests {
             description: Some("Deploy environment".to_string()),
             default: Some("staging".to_string()),
             input_type: Some("choice".to_string()),
-            options: Some(vec!["dev".to_string(), "staging".to_string(), "prod".to_string()]),
+            options: Some(vec![
+                "dev".to_string(),
+                "staging".to_string(),
+                "prod".to_string(),
+            ]),
         };
-        
+
         let input_type = determine_input_type(&field, &[]);
         match input_type {
             InputType::Choice { options, .. } => {
@@ -997,9 +1173,13 @@ mod tests {
             description: Some("Environment to deploy to".to_string()),
             default: None,
             input_type: Some("environment".to_string()),
-            options: Some(vec!["dev".to_string(), "staging".to_string(), "prod".to_string()]),
+            options: Some(vec![
+                "dev".to_string(),
+                "staging".to_string(),
+                "prod".to_string(),
+            ]),
         };
-        
+
         let input_type = determine_input_type(&field, &[]);
         match input_type {
             InputType::Choice { options, .. } => {
@@ -1019,10 +1199,10 @@ mod tests {
             input_type: Some("environment".to_string()),
             options: None,
         };
-        
+
         let input_type = determine_input_type(&field, &[]);
         match input_type {
-            InputType::Text => {},
+            InputType::Text => {}
             _ => panic!("Expected Text type for environment field without options"),
         }
     }
@@ -1037,8 +1217,12 @@ mod tests {
             input_type: Some("string".to_string()),
             options: None,
         };
-        
-        let tags = vec!["v1.0.0".to_string(), "v1.1.0".to_string(), "v2.0.0".to_string()];
+
+        let tags = vec![
+            "v1.0.0".to_string(),
+            "v1.1.0".to_string(),
+            "v2.0.0".to_string(),
+        ];
         let input_type = determine_input_type(&field, &tags);
         match input_type {
             InputType::Dropdown { options, .. } => {
@@ -1058,10 +1242,10 @@ mod tests {
             input_type: Some("string".to_string()),
             options: None,
         };
-        
+
         let input_type = determine_input_type(&field, &[]);
         match input_type {
-            InputType::Text => {},
+            InputType::Text => {}
             _ => panic!("Expected Text type for generic string field"),
         }
     }
@@ -1076,10 +1260,10 @@ mod tests {
             input_type: None, // No type specified in YAML
             options: None,
         };
-        
+
         let input_type = determine_input_type(&field, &[]);
         match input_type {
-            InputType::Text => {},
+            InputType::Text => {}
             _ => panic!("Expected Text type for field without type specification"),
         }
     }

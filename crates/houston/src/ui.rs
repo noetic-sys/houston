@@ -1,12 +1,12 @@
+use houston_core::AppState;
 use houston_ui::{
-    render_dialog, render_header, render_footer, render_log_viewer,
     HeaderStats, PanelId,
     panels::{
-        render_runs_panel, render_logs_panel, render_repos_panel,
-        render_workflows_panel, render_deployments_panel, render_tags_panel,
+        render_deployments_panel, render_logs_panel, render_repos_panel, render_runs_panel,
+        render_tags_panel, render_workflows_panel,
     },
+    render_dialog, render_footer, render_header, render_log_viewer,
 };
-use houston_core::AppState;
 use ratatui::prelude::*;
 
 pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
@@ -23,9 +23,9 @@ pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
     let main_layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),  // Header
-            Constraint::Min(1),     // Content
-            Constraint::Length(1),  // Footer
+            Constraint::Length(1), // Header
+            Constraint::Min(1),    // Content
+            Constraint::Length(1), // Footer
         ])
         .split(f.area());
 
@@ -34,27 +34,63 @@ pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
     let footer_area = main_layout[2];
 
     // Get current repo name for header
-    let current_repo = app.filtered_repos.get(app.selected_repo).map(|s| s.as_str());
+    let current_repo = app
+        .filtered_repos
+        .get(app.selected_repo)
+        .map(|s| s.as_str());
 
     // Check if anything is loading
-    let is_loading = app.tags_loading || app.actions_loading || app.branches_loading
-        || app.runs_loading || app.deployments_loading;
+    let is_loading = app.tags_loading
+        || app.actions_loading
+        || app.branches_loading
+        || app.runs_loading
+        || app.deployments_loading;
 
     // Calculate stats for header
     let stats = HeaderStats {
         repo_count: app.filtered_repos.len(),
         workflow_count: app.actions.len(),
-        runs_success: app.runs.iter().filter(|r| r.status == "completed" || r.conclusion.as_deref() == Some("success")).count(),
-        runs_failed: app.runs.iter().filter(|r| r.status == "failure" || r.conclusion.as_deref() == Some("failure")).count(),
-        runs_pending: app.runs.iter().filter(|r| matches!(r.status.as_str(), "in_progress" | "queued" | "pending" | "waiting")).count(),
+        runs_success: app
+            .runs
+            .iter()
+            .filter(|r| r.status == "completed" || r.conclusion.as_deref() == Some("success"))
+            .count(),
+        runs_failed: app
+            .runs
+            .iter()
+            .filter(|r| r.status == "failure" || r.conclusion.as_deref() == Some("failure"))
+            .count(),
+        runs_pending: app
+            .runs
+            .iter()
+            .filter(|r| {
+                matches!(
+                    r.status.as_str(),
+                    "in_progress" | "queued" | "pending" | "waiting"
+                )
+            })
+            .count(),
         deployments_count: app.deployments.len(),
     };
 
     // Render header
-    render_header(f, header_area, current_repo, app.window_manager.current_preset(), is_loading, &stats);
+    render_header(
+        f,
+        header_area,
+        current_repo,
+        app.window_manager.current_preset(),
+        is_loading,
+        &stats,
+    );
 
     // Render footer
-    render_footer(f, footer_area, app.window_manager.current_preset(), app.notification.as_deref(), false);
+    render_footer(
+        f,
+        footer_area,
+        app.window_manager.current_preset(),
+        app.notification.as_deref(),
+        false,
+    );
 
     // Render content using window manager
     render_panels(f, content_area, app, search_mode);
@@ -95,20 +131,10 @@ fn render_panels(f: &mut Frame, area: Rect, app: &mut AppState, search_mode: boo
                 );
             }
             PanelId::Runs => {
-                render_runs_panel(
-                    f,
-                    &ctx,
-                    &app.runs,
-                    app.selected_run,
-                    app.runs_loading,
-                );
+                render_runs_panel(f, &ctx, &app.runs, app.selected_run, app.runs_loading);
             }
             PanelId::Logs => {
-                render_logs_panel(
-                    f,
-                    &ctx,
-                    app.log_viewer.as_ref(),
-                );
+                render_logs_panel(f, &ctx, app.log_viewer.as_ref());
             }
             PanelId::Deployments => {
                 render_deployments_panel(

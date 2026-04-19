@@ -1,10 +1,14 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use houston_core::AppState;
-use houston_ui::{DialogType, DialogFocus, PanelId, PresetLayout};
-use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
+use houston_ui::{DialogFocus, DialogType, PanelId, PresetLayout};
 use std::io;
 
 /// Return value: (should_quit, should_load_logs)
-pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &mut bool) -> io::Result<(bool, bool)> {
+pub async fn handle_key_event(
+    key: KeyEvent,
+    app: &mut AppState,
+    search_mode: &mut bool,
+) -> io::Result<(bool, bool)> {
     // Ctrl+C or Ctrl+Q to quit (always works)
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         if let KeyCode::Char('c') | KeyCode::Char('q') = key.code {
@@ -106,7 +110,11 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
             *search_mode = false;
         }
         // Enter when Runs panel is focused opens log viewer
-        KeyCode::Enter if app.window_manager.focused() == PanelId::Runs && app.dialog.is_none() && !*search_mode => {
+        KeyCode::Enter
+            if app.window_manager.focused() == PanelId::Runs
+                && app.dialog.is_none()
+                && !*search_mode =>
+        {
             app.open_log_viewer();
             // Show the logs panel if not visible
             if !app.window_manager.is_visible(PanelId::Logs) {
@@ -134,7 +142,8 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
                     DialogType::Input { fields, focus, .. } => {
                         if let DialogFocus::Field(idx) = focus {
                             if let Some(field) = fields.get(*idx) {
-                                if matches!(field.input_type, houston_ui::InputType::Boolean { .. }) {
+                                if matches!(field.input_type, houston_ui::InputType::Boolean { .. })
+                                {
                                     app.dialog_toggle_boolean();
                                 } else {
                                     app.dialog_open_dropdown();
@@ -181,7 +190,11 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
             handle_panel_navigation(app, 1);
         }
         // Execute action when Workflows panel is focused
-        KeyCode::Char(' ') if !*search_mode && app.window_manager.focused() == PanelId::Workflows && app.dialog.is_none() => {
+        KeyCode::Char(' ')
+            if !*search_mode
+                && app.window_manager.focused() == PanelId::Workflows
+                && app.dialog.is_none() =>
+        {
             app.execute_selected_action().await;
         }
         // Tab cycles focus between visible panels
@@ -192,7 +205,11 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
             app.window_manager.focus_prev();
         }
         // Refresh runs
-        KeyCode::Char('r') if !*search_mode && app.dialog.is_none() && app.window_manager.is_visible(PanelId::Runs) => {
+        KeyCode::Char('r')
+            if !*search_mode
+                && app.dialog.is_none()
+                && app.window_manager.is_visible(PanelId::Runs) =>
+        {
             app.start_loading_runs();
         }
         _ => {}
@@ -204,22 +221,46 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
 fn handle_panel_navigation(app: &mut AppState, direction: i32) {
     match app.window_manager.focused() {
         PanelId::Repos => {
-            if direction > 0 { app.next_repo(); } else { app.previous_repo(); }
+            if direction > 0 {
+                app.next_repo();
+            } else {
+                app.previous_repo();
+            }
         }
         PanelId::Workflows => {
-            if direction > 0 { app.next_action(); } else { app.previous_action(); }
+            if direction > 0 {
+                app.next_action();
+            } else {
+                app.previous_action();
+            }
         }
         PanelId::Runs => {
-            if direction > 0 { app.next_run(); } else { app.previous_run(); }
+            if direction > 0 {
+                app.next_run();
+            } else {
+                app.previous_run();
+            }
         }
         PanelId::Logs => {
-            if direction > 0 { app.log_scroll_down(); } else { app.log_scroll_up(); }
+            if direction > 0 {
+                app.log_scroll_down();
+            } else {
+                app.log_scroll_up();
+            }
         }
         PanelId::Deployments => {
-            if direction > 0 { app.next_deployment(); } else { app.previous_deployment(); }
+            if direction > 0 {
+                app.next_deployment();
+            } else {
+                app.previous_deployment();
+            }
         }
         PanelId::Tags => {
-            if direction > 0 { app.next_tag(); } else { app.previous_tag(); }
+            if direction > 0 {
+                app.next_tag();
+            } else {
+                app.previous_tag();
+            }
         }
     }
 }
