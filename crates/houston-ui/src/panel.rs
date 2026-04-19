@@ -7,7 +7,7 @@ use ratatui::prelude::*;
 use std::hash::Hash;
 
 /// Unique identifier for each panel type in the application.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum PanelId {
     /// Repository list panel
     Repos,

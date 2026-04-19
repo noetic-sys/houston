@@ -229,15 +229,41 @@ impl WindowManager {
     /// Returns the current layout, accounting for visibility overrides and zoom.
     pub fn get_layout(&self) -> LayoutNode {
         if let Some(zoomed_panel) = self.zoomed {
-            // Zoomed: single panel full screen
             return LayoutNode::Panel(zoomed_panel);
         }
 
-        // Get the base layout from preset
         let base_layout = self.current_preset.to_layout();
+        let filtered = self.filter_layout(&base_layout);
 
-        // Filter to only visible panels
-        self.filter_layout(&base_layout)
+        // Find visible panels that aren't in the preset's layout tree and append them
+        let preset_panels = base_layout.collect_panels();
+        let mut extras: Vec<PanelId> = self
+            .visible
+            .iter()
+            .filter(|p| !preset_panels.contains(p))
+            .copied()
+            .collect();
+        extras.sort(); // stable order
+
+        if extras.is_empty() {
+            return filtered;
+        }
+
+        // Append extra panels as a vertical strip on the right (30% each, capped)
+        let extra_ratio = (0.30_f32 * extras.len() as f32).min(0.60);
+        let main_ratio = 1.0 - extra_ratio;
+        let per_extra = extra_ratio / extras.len() as f32;
+
+        let extra_nodes: Vec<LayoutNode> = extras.into_iter().map(LayoutNode::Panel).collect();
+        let extra_ratios = vec![per_extra / extra_ratio; extra_nodes.len()]; // normalized to 1.0
+
+        let right = if extra_nodes.len() == 1 {
+            extra_nodes.into_iter().next().unwrap()
+        } else {
+            LayoutNode::vertical_with_ratios(extra_nodes, extra_ratios)
+        };
+
+        LayoutNode::horizontal_with_ratios(vec![filtered, right], vec![main_ratio, extra_ratio])
     }
 
     /// Filters a layout tree to only include visible panels.
