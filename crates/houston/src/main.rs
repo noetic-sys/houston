@@ -150,4 +150,11 @@ fn spawn_data_loaders(tx: &mpsc::UnboundedSender<AppMsg>, provider: &GitHubProvi
         DeploymentsLoaded,
         DeploymentsFailed
     );
+    spawn!(
+        provider,
+        repo,
+        list_pull_requests,
+        PullRequestsLoaded,
+        PullRequestsFailed
+    );
 }

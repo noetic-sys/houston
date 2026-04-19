@@ -74,6 +74,19 @@ pub struct Environment {
 }
 
 #[derive(Debug, Clone)]
+pub struct PullRequest {
+    pub number: u64,
+    pub title: String,
+    pub state: String,
+    pub author: String,
+    pub branch: String,
+    pub updated_at: String,
+    pub draft: bool,
+    pub reviews_approved: u32,
+    pub checks_status: String, // "success", "failure", "pending", "none"
+}
+
+#[derive(Debug, Clone)]
 pub struct DeploymentInfo {
     pub id: u64,
     pub environment: String,
@@ -106,4 +119,5 @@ pub trait VcsProvider: Send + Sync {
     async fn list_action_runs(&self, repo: &str) -> Result<Vec<ActionRun>, ProviderError>;
     async fn get_run_jobs(&self, repo: &str, run_id: &str) -> Result<Vec<JobInfo>, ProviderError>;
     async fn list_deployments(&self, repo: &str) -> Result<Vec<DeploymentInfo>, ProviderError>;
+    async fn list_pull_requests(&self, repo: &str) -> Result<Vec<PullRequest>, ProviderError>;
 }

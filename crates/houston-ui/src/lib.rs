@@ -610,6 +610,9 @@ pub fn render_header(
         PresetLayout::Tags => {
             spans.push(Span::styled("🏷️ Tags", Style::default().fg(Color::White)));
         }
+        PresetLayout::PullRequests => {
+            spans.push(Span::styled("PRs", Style::default().fg(Color::White)));
+        }
     }
 
     // Preset indicator
@@ -707,6 +710,7 @@ pub fn render_footer(
         PresetLayout::Runs => vec![("↵", "logs"), ("r", "refresh")],
         PresetLayout::Deployments => vec![("↵", "details"), ("r", "refresh")],
         PresetLayout::Tags => vec![("␣", "deploy"), ("↵", "details")],
+        PresetLayout::PullRequests => vec![("↵", "open")],
     };
 
     for (key, action) in shortcuts {

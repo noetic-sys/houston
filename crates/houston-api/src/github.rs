@@ -1,6 +1,6 @@
 use crate::{
-    Action, ActionRun, Branch, DeploymentInfo, JobInfo, JobStep, ProviderError, Repo, Tag,
-    VcsProvider,
+    Action, ActionRun, Branch, DeploymentInfo, JobInfo, JobStep, ProviderError, PullRequest, Repo,
+    Tag, VcsProvider,
 };
 use async_trait::async_trait;
 use base64::Engine;
@@ -589,5 +589,66 @@ impl VcsProvider for GitHubProvider {
         }
 
         Ok(deployments)
+    }
+
+    async fn list_pull_requests(&self, repo: &str) -> Result<Vec<PullRequest>, ProviderError> {
+        let (owner, repo_name) = self.parse_repo(repo).await?;
+
+        let prs: serde_json::Value = self
+            .client
+            .get(
+                format!(
+                    "/repos/{}/{}/pulls?state=open&per_page=50&sort=updated&direction=desc",
+                    owner, repo_name
+                ),
+                None::<&()>,
+            )
+            .await
+            .map_err(|e| ProviderError::Api(e.to_string()))?;
+
+        let result = prs
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|pr| {
+                        let number = pr.get("number")?.as_u64()?;
+                        let title = pr.get("title")?.as_str()?.to_string();
+                        let state = pr.get("state")?.as_str()?.to_string();
+                        let author = pr
+                            .get("user")
+                            .and_then(|u| u.get("login"))
+                            .and_then(|l| l.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let branch = pr
+                            .get("head")
+                            .and_then(|h| h.get("ref"))
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let updated_at = pr
+                            .get("updated_at")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let draft = pr.get("draft").and_then(|d| d.as_bool()).unwrap_or(false);
+
+                        Some(PullRequest {
+                            number,
+                            title,
+                            state,
+                            author,
+                            branch,
+                            updated_at,
+                            draft,
+                            reviews_approved: 0,
+                            checks_status: "none".to_string(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(result)
     }
 }

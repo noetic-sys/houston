@@ -21,6 +21,8 @@ pub enum PanelId {
     Deployments,
     /// Tags list panel
     Tags,
+    /// Pull requests panel
+    PullRequests,
 }
 
 impl PanelId {
@@ -33,6 +35,7 @@ impl PanelId {
             PanelId::Logs,
             PanelId::Deployments,
             PanelId::Tags,
+            PanelId::PullRequests,
         ]
     }
 
@@ -45,6 +48,7 @@ impl PanelId {
             PanelId::Logs => "Logs",
             PanelId::Deployments => "Deployments",
             PanelId::Tags => "Tags",
+            PanelId::PullRequests => "Pull Requests",
         }
     }
 
@@ -57,6 +61,7 @@ impl PanelId {
             PanelId::Logs => Some('l'),
             PanelId::Deployments => Some('d'),
             PanelId::Tags => Some('t'),
+            PanelId::PullRequests => Some('p'),
         }
     }
 
@@ -69,6 +74,7 @@ impl PanelId {
             PanelId::Logs => "Logs",
             PanelId::Deployments => "Deps",
             PanelId::Tags => "Tags",
+            PanelId::PullRequests => "PRs",
         }
     }
 }
@@ -137,7 +143,7 @@ mod tests {
     #[test]
     fn test_panel_id_all() {
         let all = PanelId::all();
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), 7);
         assert!(all.contains(&PanelId::Repos));
         assert!(all.contains(&PanelId::Logs));
     }

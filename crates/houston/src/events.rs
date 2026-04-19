@@ -71,6 +71,12 @@ pub async fn handle_key_event(
                 app.window_manager.toggle_panel(PanelId::Tags);
                 return Ok((false, false));
             }
+            KeyCode::Char('p')
+                if app.window_manager.current_preset() != PresetLayout::PullRequests =>
+            {
+                app.window_manager.toggle_panel(PanelId::PullRequests);
+                return Ok((false, false));
+            }
             // Zoom toggle
             KeyCode::Char('z') => {
                 app.window_manager.toggle_zoom();
@@ -254,6 +260,13 @@ fn handle_panel_navigation(app: &mut AppState, direction: i32) {
                 app.next_tag();
             } else {
                 app.previous_tag();
+            }
+        }
+        PanelId::PullRequests => {
+            if direction > 0 {
+                app.next_pr();
+            } else {
+                app.previous_pr();
             }
         }
     }
