@@ -84,7 +84,11 @@ impl LayoutNode {
             LayoutNode::Panel(id) => {
                 result.push((*id, area));
             }
-            LayoutNode::Split { direction, children, ratios } => {
+            LayoutNode::Split {
+                direction,
+                children,
+                ratios,
+            } => {
                 let constraints: Vec<Constraint> = ratios
                     .iter()
                     .map(|r| Constraint::Ratio((*r * 100.0) as u32, 100))
@@ -213,9 +217,7 @@ impl PresetLayout {
                     vec![0.30, 0.40, 0.30],
                 )
             }
-            PresetLayout::Workflows => {
-                LayoutNode::Panel(PanelId::Workflows)
-            }
+            PresetLayout::Workflows => LayoutNode::Panel(PanelId::Workflows),
             PresetLayout::Runs => {
                 // 40% | 60%
                 LayoutNode::horizontal_with_ratios(

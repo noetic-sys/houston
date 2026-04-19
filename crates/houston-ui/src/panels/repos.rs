@@ -31,10 +31,7 @@ pub fn render_repos_panel(
     let items: Vec<ListItem> = if repos.is_empty() {
         vec![ListItem::new("No repositories").style(Style::default().fg(Color::DarkGray))]
     } else {
-        repos
-            .iter()
-            .map(|r| ListItem::new(r.as_str()))
-            .collect()
+        repos.iter().map(|r| ListItem::new(r.as_str())).collect()
     };
 
     let list = List::new(items)

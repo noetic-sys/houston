@@ -248,7 +248,11 @@ impl WindowManager {
                 // but we handle it gracefully
                 LayoutNode::Panel(*id)
             }
-            LayoutNode::Split { direction, children, ratios } => {
+            LayoutNode::Split {
+                direction,
+                children,
+                ratios,
+            } => {
                 // Filter children to only visible ones
                 let filtered: Vec<(LayoutNode, f32)> = children
                     .iter()
@@ -272,10 +276,8 @@ impl WindowManager {
                 } else {
                     // Re-normalize ratios
                     let total: f32 = filtered.iter().map(|(_, r)| r).sum();
-                    let (children, ratios): (Vec<_>, Vec<_>) = filtered
-                        .into_iter()
-                        .map(|(c, r)| (c, r / total))
-                        .unzip();
+                    let (children, ratios): (Vec<_>, Vec<_>) =
+                        filtered.into_iter().map(|(c, r)| (c, r / total)).unzip();
 
                     LayoutNode::Split {
                         direction: *direction,
@@ -309,11 +311,7 @@ impl WindowManager {
 
     /// Creates a PanelContext for the given panel and area.
     pub fn panel_context(&self, panel: PanelId, area: Rect) -> PanelContext {
-        PanelContext::new(
-            area,
-            self.focused == panel,
-            self.zoomed == Some(panel),
-        )
+        PanelContext::new(area, self.focused == panel, self.zoomed == Some(panel))
     }
 }
 

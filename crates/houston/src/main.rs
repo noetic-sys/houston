@@ -1,16 +1,21 @@
 use houston_api::{GitHubProvider, VcsProvider};
-use houston_core::{AppState, AppMsg};
+use houston_core::{AppMsg, AppState};
 use ratatui::prelude::*;
 use std::io;
 use tokio::sync::mpsc;
 
-mod ui;
 mod events;
+mod ui;
 
-use ui::render_ui;
 use events::handle_key_event;
+use ui::render_ui;
 
 fn get_github_token() -> Option<String> {
+    if let Ok(token) = std::env::var("GITHUB_TOKEN")
+        && !token.is_empty()
+    {
+        return Some(token.trim().to_string());
+    }
     std::process::Command::new("gh")
         .args(["auth", "token"])
         .output()
@@ -25,7 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let token = get_github_token();
     let provider = GitHubProvider::new(token, None, None);
 
-    let repos = provider.list_repos().await
+    let repos = provider
+        .list_repos()
+        .await
         .map(|repos| repos.into_iter().map(|r| r.name).collect())
         .unwrap_or_else(|e| {
             eprintln!("GitHub API error: {}. Using mock data.", e);
@@ -69,38 +76,43 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
         }
 
         // Auto-refresh runs when viewing them
-        if app.should_refresh_runs() {
-            if let Some(repo) = app.filtered_repos.get(app.selected_repo).cloned() {
-                app.start_loading_runs();
-                app.mark_runs_refreshed();
-                let (tx, p) = (tx.clone(), app.provider.clone());
-                tokio::spawn(async move {
-                    let _ = tx.send(match p.list_action_runs(&repo).await {
-                        Ok(d) => AppMsg::RunsLoaded(d),
-                        Err(e) => AppMsg::RunsFailed(e.to_string()),
-                    });
+        if app.should_refresh_runs()
+            && let Some(repo) = app.filtered_repos.get(app.selected_repo).cloned()
+        {
+            app.start_loading_runs();
+            app.mark_runs_refreshed();
+            let (tx, p) = (tx.clone(), app.provider.clone());
+            tokio::spawn(async move {
+                let _ = tx.send(match p.list_action_runs(&repo).await {
+                    Ok(d) => AppMsg::RunsLoaded(d),
+                    Err(e) => AppMsg::RunsFailed(e.to_string()),
                 });
-            }
+            });
         }
 
         terminal.draw(|f| render_ui(f, app, search_mode))?;
 
-        if crossterm::event::poll(std::time::Duration::from_millis(100))? {
-            if let crossterm::event::Event::Key(key) = crossterm::event::read()? {
-                let (quit, load_jobs) = handle_key_event(key, app, &mut search_mode).await?;
-                if quit { return Ok(()); }
+        if crossterm::event::poll(std::time::Duration::from_millis(100))?
+            && let crossterm::event::Event::Key(key) = crossterm::event::read()?
+        {
+            let (quit, load_jobs) = handle_key_event(key, app, &mut search_mode).await?;
+            if quit {
+                return Ok(());
+            }
 
-                if load_jobs {
-                    if let (Some(v), Some(repo)) = (&app.log_viewer, app.filtered_repos.get(app.selected_repo).cloned()) {
-                        let (tx, p, run_id) = (tx.clone(), app.provider.clone(), v.run_id.clone());
-                        tokio::spawn(async move {
-                            let _ = tx.send(match p.get_run_jobs(&repo, &run_id).await {
-                                Ok(d) => AppMsg::JobsLoaded(d),
-                                Err(e) => AppMsg::JobsFailed(e.to_string()),
-                            });
-                        });
-                    }
-                }
+            if load_jobs
+                && let (Some(v), Some(repo)) = (
+                    &app.log_viewer,
+                    app.filtered_repos.get(app.selected_repo).cloned(),
+                )
+            {
+                let (tx, p, run_id) = (tx.clone(), app.provider.clone(), v.run_id.clone());
+                tokio::spawn(async move {
+                    let _ = tx.send(match p.get_run_jobs(&repo, &run_id).await {
+                        Ok(d) => AppMsg::JobsLoaded(d),
+                        Err(e) => AppMsg::JobsFailed(e.to_string()),
+                    });
+                });
             }
         }
     }
@@ -123,7 +135,19 @@ fn spawn_data_loaders(tx: &mpsc::UnboundedSender<AppMsg>, provider: &GitHubProvi
 
     spawn!(provider, repo, list_tags, TagsLoaded, TagsFailed);
     spawn!(provider, repo, list_actions, ActionsLoaded, ActionsFailed);
-    spawn!(provider, repo, list_branches, BranchesLoaded, BranchesFailed);
+    spawn!(
+        provider,
+        repo,
+        list_branches,
+        BranchesLoaded,
+        BranchesFailed
+    );
     spawn!(provider, repo, list_action_runs, RunsLoaded, RunsFailed);
-    spawn!(provider, repo, list_deployments, DeploymentsLoaded, DeploymentsFailed);
+    spawn!(
+        provider,
+        repo,
+        list_deployments,
+        DeploymentsLoaded,
+        DeploymentsFailed
+    );
 }

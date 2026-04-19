@@ -87,15 +87,23 @@ pub struct PanelContext {
 impl PanelContext {
     /// Creates a new panel context.
     pub fn new(area: Rect, focused: bool, zoomed: bool) -> Self {
-        Self { area, focused, zoomed }
+        Self {
+            area,
+            focused,
+            zoomed,
+        }
     }
 
     /// Returns the border style based on focus state.
     pub fn border_style(&self) -> Style {
         if self.zoomed {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else if self.focused {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::DarkGray)
         }
@@ -104,9 +112,13 @@ impl PanelContext {
     /// Returns the title style based on focus state.
     pub fn title_style(&self) -> Style {
         if self.zoomed {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else if self.focused {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Gray)
         }

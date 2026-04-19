@@ -3,15 +3,11 @@
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-use crate::panel::PanelContext;
 use crate::LogViewerState;
+use crate::panel::PanelContext;
 
 /// Renders the logs panel with job and step information.
-pub fn render_logs_panel(
-    f: &mut Frame,
-    ctx: &PanelContext,
-    log_viewer: Option<&LogViewerState>,
-) {
+pub fn render_logs_panel(f: &mut Frame, ctx: &PanelContext, log_viewer: Option<&LogViewerState>) {
     let title = if ctx.zoomed {
         " Logs [ZOOMED - z to exit] "
     } else {
@@ -60,7 +56,9 @@ fn render_log_content(f: &mut Frame, area: Rect, block: Block, state: &LogViewer
         Span::styled("Workflow: ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             &state.workflow_name,
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ),
     ]));
     lines.push(Line::from(vec![
@@ -88,7 +86,9 @@ fn render_log_content(f: &mut Frame, area: Rect, block: Block, state: &LogViewer
                 Span::styled(format!("{} ", job_icon), Style::default().fg(job_color)),
                 Span::styled(
                     &job.name,
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format!(" ({})", job.conclusion.as_deref().unwrap_or(&job.status)),
@@ -111,10 +111,7 @@ fn render_log_content(f: &mut Frame, area: Rect, block: Block, state: &LogViewer
     }
 
     // Apply scroll offset
-    let visible_lines: Vec<Line> = lines
-        .into_iter()
-        .skip(state.scroll_offset)
-        .collect();
+    let visible_lines: Vec<Line> = lines.into_iter().skip(state.scroll_offset).collect();
 
     let paragraph = Paragraph::new(visible_lines).block(block);
 

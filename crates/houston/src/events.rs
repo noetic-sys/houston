@@ -1,15 +1,19 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use houston_core::AppState;
-use houston_ui::{FocusedPanel, DialogType, DialogFocus, PanelId, PresetLayout};
-use crossterm::event::{KeyEvent, KeyCode, KeyModifiers};
+use houston_ui::{DialogFocus, DialogType, PanelId, PresetLayout};
 use std::io;
 
 /// Return value: (should_quit, should_load_logs)
-pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &mut bool) -> io::Result<(bool, bool)> {
+pub async fn handle_key_event(
+    key: KeyEvent,
+    app: &mut AppState,
+    search_mode: &mut bool,
+) -> io::Result<(bool, bool)> {
     // Ctrl+C or Ctrl+Q to quit (always works)
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-        if let KeyCode::Char('c') | KeyCode::Char('q') = key.code {
-            return Ok((true, false));
-        }
+    if key.modifiers.contains(KeyModifiers::CONTROL)
+        && let KeyCode::Char('c') | KeyCode::Char('q') = key.code
+    {
+        return Ok((true, false));
     }
 
     // Handle zoomed panel mode - z to unzoom, navigation within panel
@@ -40,27 +44,14 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
         }
     }
 
-    // Handle legacy log viewer mode (if somehow still used)
-    if app.log_viewer.is_some() && app.window_manager.zoomed() != Some(PanelId::Logs) {
-        match key.code {
-            KeyCode::Esc => app.close_log_viewer(),
-            KeyCode::Char('j') | KeyCode::Down => app.log_scroll_down(),
-            KeyCode::Char('k') | KeyCode::Up => app.log_scroll_up(),
-            KeyCode::Char('g') => app.log_scroll_top(),
-            KeyCode::Char('G') => app.log_scroll_bottom(),
-            _ => {}
-        }
-        return Ok((false, false));
-    }
-
     // Handle preset switching with number keys (1-5) when not in search mode or dialog
-    if !*search_mode && app.dialog.is_none() {
-        if let KeyCode::Char(c) = key.code {
-            if let Some(preset) = PresetLayout::from_key(c) {
-                app.window_manager.apply_preset(preset);
-                return Ok((false, false));
-            }
-        }
+    if !*search_mode
+        && app.dialog.is_none()
+        && let KeyCode::Char(c) = key.code
+        && let Some(preset) = PresetLayout::from_key(c)
+    {
+        app.window_manager.apply_preset(preset);
+        return Ok((false, false));
     }
 
     // Handle panel toggles and zoom when not in search mode or dialog
@@ -75,13 +66,6 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
                 app.window_manager.toggle_panel(PanelId::Deployments);
                 return Ok((false, false));
             }
-            // Note: 'w' would conflict with 2 for Workflows preset if we're not careful
-            // But since we already handled number keys above, this is for toggling within a preset
-            // Actually, let's skip 'w' for now to avoid confusion
-            // KeyCode::Char('w') => {
-            //     app.window_manager.toggle_panel(PanelId::Workflows);
-            //     return Ok((false, false));
-            // }
             KeyCode::Char('t') if app.window_manager.current_preset() != PresetLayout::Tags => {
                 // Only toggle if not in Tags preset (where tags is the main panel)
                 app.window_manager.toggle_panel(PanelId::Tags);
@@ -92,13 +76,11 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
                 app.window_manager.toggle_zoom();
                 return Ok((false, false));
             }
-            // Focus navigation with h/l (in addition to Tab)
+            // Focus navigation with h (left)
             KeyCode::Char('h') => {
                 app.window_manager.focus_left();
                 return Ok((false, false));
             }
-            // Note: 'l' is used for logs toggle, so we can't use it for right
-            // Let's use Tab for cycling instead
             _ => {}
         }
     }
@@ -128,7 +110,11 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
             *search_mode = false;
         }
         // Enter when Runs panel is focused opens log viewer
-        KeyCode::Enter if app.window_manager.focused() == PanelId::Runs && app.dialog.is_none() && !*search_mode => {
+        KeyCode::Enter
+            if app.window_manager.focused() == PanelId::Runs
+                && app.dialog.is_none()
+                && !*search_mode =>
+        {
             app.open_log_viewer();
             // Show the logs panel if not visible
             if !app.window_manager.is_visible(PanelId::Logs) {
@@ -151,20 +137,15 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
         }
         // Open dropdown or toggle boolean with space when focused on field
         KeyCode::Char(' ') if app.dialog.is_some() => {
-            if let Some(dialog) = &app.dialog {
-                match &dialog.dialog_type {
-                    DialogType::Input { fields, focus, .. } => {
-                        if let DialogFocus::Field(idx) = focus {
-                            if let Some(field) = fields.get(*idx) {
-                                if matches!(field.input_type, houston_ui::InputType::Boolean { .. }) {
-                                    app.dialog_toggle_boolean();
-                                } else {
-                                    app.dialog_open_dropdown();
-                                }
-                            }
-                        }
-                    }
-                    DialogType::DropdownSelection { .. } => {}
+            if let Some(dialog) = &app.dialog
+                && let DialogType::Input { fields, focus, .. } = &dialog.dialog_type
+                && let DialogFocus::Field(idx) = focus
+                && let Some(field) = fields.get(*idx)
+            {
+                if matches!(field.input_type, houston_ui::InputType::Boolean { .. }) {
+                    app.dialog_toggle_boolean();
+                } else {
+                    app.dialog_open_dropdown();
                 }
             }
         }
@@ -203,27 +184,27 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
             handle_panel_navigation(app, 1);
         }
         // Execute action when Workflows panel is focused
-        KeyCode::Char(' ') if !*search_mode && app.window_manager.focused() == PanelId::Workflows && app.dialog.is_none() => {
-            app.execute_selected_action().await;
-        }
-        // Also allow space from Repos panel if actions are focused (legacy behavior)
-        KeyCode::Char(' ') if !*search_mode && app.focused_panel == FocusedPanel::Actions && app.dialog.is_none() => {
+        KeyCode::Char(' ')
+            if !*search_mode
+                && app.window_manager.focused() == PanelId::Workflows
+                && app.dialog.is_none() =>
+        {
             app.execute_selected_action().await;
         }
         // Tab cycles focus between visible panels
         KeyCode::Tab if app.dialog.is_none() => {
             app.window_manager.focus_next();
-            // Also update legacy focused_panel for backwards compatibility
-            sync_legacy_focus(app);
         }
         KeyCode::BackTab if app.dialog.is_none() => {
             app.window_manager.focus_prev();
-            sync_legacy_focus(app);
         }
         // Refresh runs
-        KeyCode::Char('r') if !*search_mode && app.dialog.is_none() && app.window_manager.is_visible(PanelId::Runs) => {
+        KeyCode::Char('r')
+            if !*search_mode
+                && app.dialog.is_none()
+                && app.window_manager.is_visible(PanelId::Runs) =>
+        {
             app.start_loading_runs();
-            // The main loop will detect this and trigger a refresh
         }
         _ => {}
     }
@@ -234,32 +215,46 @@ pub async fn handle_key_event(key: KeyEvent, app: &mut AppState, search_mode: &m
 fn handle_panel_navigation(app: &mut AppState, direction: i32) {
     match app.window_manager.focused() {
         PanelId::Repos => {
-            if direction > 0 { app.next_repo(); } else { app.previous_repo(); }
+            if direction > 0 {
+                app.next_repo();
+            } else {
+                app.previous_repo();
+            }
         }
         PanelId::Workflows => {
-            if direction > 0 { app.next_action(); } else { app.previous_action(); }
+            if direction > 0 {
+                app.next_action();
+            } else {
+                app.previous_action();
+            }
         }
         PanelId::Runs => {
-            if direction > 0 { app.next_run(); } else { app.previous_run(); }
+            if direction > 0 {
+                app.next_run();
+            } else {
+                app.previous_run();
+            }
         }
         PanelId::Logs => {
-            if direction > 0 { app.log_scroll_down(); } else { app.log_scroll_up(); }
+            if direction > 0 {
+                app.log_scroll_down();
+            } else {
+                app.log_scroll_up();
+            }
         }
         PanelId::Deployments => {
-            if direction > 0 { app.next_deployment(); } else { app.previous_deployment(); }
+            if direction > 0 {
+                app.next_deployment();
+            } else {
+                app.previous_deployment();
+            }
         }
         PanelId::Tags => {
-            if direction > 0 { app.next_tag(); } else { app.previous_tag(); }
+            if direction > 0 {
+                app.next_tag();
+            } else {
+                app.previous_tag();
+            }
         }
     }
-}
-
-/// Sync the legacy focused_panel with window_manager for backwards compatibility
-fn sync_legacy_focus(app: &mut AppState) {
-    app.focused_panel = match app.window_manager.focused() {
-        PanelId::Repos => FocusedPanel::Repos,
-        PanelId::Workflows => FocusedPanel::Actions,
-        PanelId::Tags => FocusedPanel::Tags,
-        _ => app.focused_panel, // Keep existing for panels not in legacy enum
-    };
 }
