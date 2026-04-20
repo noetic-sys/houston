@@ -13,6 +13,7 @@ pub fn render_repos_panel(
     selected: usize,
     list_state: &mut ListState,
     search_query: &str,
+    pinned: &std::collections::HashSet<String>,
 ) {
     let title = if ctx.zoomed {
         " Repositories [ZOOMED - z to exit] ".to_string()
@@ -31,7 +32,16 @@ pub fn render_repos_panel(
     let items: Vec<ListItem> = if repos.is_empty() {
         vec![ListItem::new("No repositories").style(Style::default().fg(Color::DarkGray))]
     } else {
-        repos.iter().map(|r| ListItem::new(r.as_str())).collect()
+        repos
+            .iter()
+            .map(|r| {
+                if pinned.contains(r.as_str()) {
+                    ListItem::new(format!("★ {}", r)).style(Style::default().fg(Color::Yellow))
+                } else {
+                    ListItem::new(r.as_str()).style(Style::default())
+                }
+            })
+            .collect()
     };
 
     let list = List::new(items)

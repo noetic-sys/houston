@@ -212,6 +212,14 @@ pub async fn handle_key_event(
         {
             app.start_loading_runs();
         }
+        // Pin/unpin current repo
+        KeyCode::Char('*')
+            if !*search_mode
+                && app.dialog.is_none()
+                && app.window_manager.focused() == PanelId::Repos =>
+        {
+            app.toggle_pin();
+        }
         _ => {}
     }
     Ok((false, false))

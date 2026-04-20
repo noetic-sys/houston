@@ -7,6 +7,7 @@ use houston_ui::{
     WindowManager, convert_workflow_input_field,
 };
 use ratatui::widgets::ListState;
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 pub mod navigation;
@@ -74,13 +75,24 @@ pub struct AppState {
     pub pull_requests_loading: bool,
     // Window manager for multi-panel UI
     pub window_manager: WindowManager,
+    // Pinned repos (floated to top of list)
+    pub pinned_repos: HashSet<String>,
+    pub pins_dirty: bool,
 }
 
 impl AppState {
     pub fn new(repos: Vec<String>, provider: GitHubProvider) -> Self {
+        Self::new_with_pins(repos, provider, HashSet::new())
+    }
+
+    pub fn new_with_pins(
+        repos: Vec<String>,
+        provider: GitHubProvider,
+        pinned_repos: HashSet<String>,
+    ) -> Self {
         let mut repo_list_state = ListState::default();
         let selected_repo = 0;
-        let filtered_repos = repos.clone();
+        let filtered_repos = sorted_with_pins(&repos, &pinned_repos);
         if !filtered_repos.is_empty() {
             repo_list_state.select(Some(selected_repo));
         }
@@ -128,7 +140,25 @@ impl AppState {
             pull_requests_loading: false,
             // Window manager for multi-panel UI
             window_manager: WindowManager::new(),
+            pinned_repos,
+            pins_dirty: false,
         }
+    }
+
+    pub fn toggle_pin(&mut self) {
+        if let Some(repo) = self.filtered_repos.get(self.selected_repo).cloned() {
+            if self.pinned_repos.contains(&repo) {
+                self.pinned_repos.remove(&repo);
+            } else {
+                self.pinned_repos.insert(repo);
+            }
+            self.pins_dirty = true;
+            self.filter_repos();
+        }
+    }
+
+    pub fn is_pinned(&self, repo: &str) -> bool {
+        self.pinned_repos.contains(repo)
     }
 
     // Centralized message handler
@@ -686,4 +716,12 @@ impl AppState {
             false
         }
     }
+}
+
+pub fn sorted_with_pins(repos: &[String], pinned: &HashSet<String>) -> Vec<String> {
+    let mut pinned_list: Vec<&String> = repos.iter().filter(|r| pinned.contains(*r)).collect();
+    let mut rest: Vec<&String> = repos.iter().filter(|r| !pinned.contains(*r)).collect();
+    pinned_list.sort();
+    rest.sort();
+    pinned_list.into_iter().chain(rest).cloned().collect()
 }
