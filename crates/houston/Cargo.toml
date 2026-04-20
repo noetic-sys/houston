@@ -18,3 +18,5 @@ houston-core = { path = "../houston-core" }
 tokio = { version = "1.37.0", features = ["full"] }
 crossterm = "0.29"
 ratatui = "0.29.0"
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

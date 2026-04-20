@@ -119,6 +119,7 @@ fn render_panels(f: &mut Frame, area: Rect, app: &mut AppState, search_mode: boo
                     app.selected_repo,
                     &mut app.repo_list_state,
                     if search_mode { &app.search_query } else { "" },
+                    &app.pinned_repos,
                 );
             }
             PanelId::Workflows => {

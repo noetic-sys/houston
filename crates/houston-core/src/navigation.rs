@@ -7,7 +7,7 @@ impl AppState {
     // =========================================================================
 
     pub fn filter_repos(&mut self) {
-        self.filtered_repos = if self.search_query.is_empty() {
+        let base: Vec<String> = if self.search_query.is_empty() {
             self.repos.clone()
         } else {
             let query = self.search_query.to_lowercase();
@@ -17,6 +17,7 @@ impl AppState {
                 .cloned()
                 .collect()
         };
+        self.filtered_repos = crate::sorted_with_pins(&base, &self.pinned_repos);
 
         // Clamp selection
         if self.selected_repo >= self.filtered_repos.len() {

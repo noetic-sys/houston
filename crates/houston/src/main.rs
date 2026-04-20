@@ -4,9 +4,11 @@ use ratatui::prelude::*;
 use std::io;
 use tokio::sync::mpsc;
 
+mod config;
 mod events;
 mod ui;
 
+use config::{load_pins, save_pins};
 use events::handle_key_event;
 use ui::render_ui;
 
@@ -62,8 +64,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             vec!["houston".into(), "test-repo".into()]
         });
 
+    let pins = load_pins();
     let local_repo = detect_local_repo();
-    let mut app = AppState::new(repos, provider);
+    let mut app = AppState::new_with_pins(repos, provider, pins);
 
     // Pre-select the repo matching the current directory's git remote
     if let Some(repo) = local_repo
@@ -129,6 +132,11 @@ async fn run_app<B: Backend>(terminal: &mut Terminal<B>, app: &mut AppState) -> 
             let (quit, load_jobs) = handle_key_event(key, app, &mut search_mode).await?;
             if quit {
                 return Ok(());
+            }
+
+            if app.pins_dirty {
+                save_pins(&app.pinned_repos);
+                app.pins_dirty = false;
             }
 
             if load_jobs
