@@ -610,6 +610,9 @@ pub fn render_header(
         PresetLayout::Tags => {
             spans.push(Span::styled("🏷️ Tags", Style::default().fg(Color::White)));
         }
+        PresetLayout::PullRequests => {
+            spans.push(Span::styled("PRs", Style::default().fg(Color::White)));
+        }
     }
 
     // Preset indicator
@@ -665,6 +668,7 @@ pub fn render_footer(
         (PresetLayout::Runs, "3", "Runs"),
         (PresetLayout::Deployments, "4", "Deps"),
         (PresetLayout::Tags, "5", "Tags"),
+        (PresetLayout::PullRequests, "6", "PRs"),
     ];
 
     for (p, key, name) in presets {
@@ -697,6 +701,8 @@ pub fn render_footer(
     spans.push(Span::styled(":deps", Style::default().fg(Color::DarkGray)));
     spans.push(Span::styled(" z", Style::default().fg(Color::Cyan)));
     spans.push(Span::styled(":zoom", Style::default().fg(Color::DarkGray)));
+    spans.push(Span::styled(" p", Style::default().fg(Color::Cyan)));
+    spans.push(Span::styled(":prs", Style::default().fg(Color::DarkGray)));
 
     spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
 
@@ -707,6 +713,7 @@ pub fn render_footer(
         PresetLayout::Runs => vec![("↵", "logs"), ("r", "refresh")],
         PresetLayout::Deployments => vec![("↵", "details"), ("r", "refresh")],
         PresetLayout::Tags => vec![("␣", "deploy"), ("↵", "details")],
+        PresetLayout::PullRequests => vec![("↵", "open")],
     };
 
     for (key, action) in shortcuts {

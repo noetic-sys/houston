@@ -1,5 +1,6 @@
 use houston_api::{
-    Action, ActionRun, Branch, DeploymentInfo, GitHubProvider, JobInfo, Tag, VcsProvider,
+    Action, ActionRun, Branch, DeploymentInfo, GitHubProvider, JobInfo, PullRequest, Tag,
+    VcsProvider,
 };
 use houston_ui::{
     DialogFocus, DialogState, DialogType, InputType, LogViewerState, PanelId, UIWorkflowInputField,
@@ -25,6 +26,8 @@ pub enum AppMsg {
     JobsFailed(String),
     DeploymentsLoaded(Vec<DeploymentInfo>),
     DeploymentsFailed(String),
+    PullRequestsLoaded(Vec<PullRequest>),
+    PullRequestsFailed(String),
 }
 
 pub struct AppState {
@@ -65,6 +68,10 @@ pub struct AppState {
     pub deployments: Vec<DeploymentInfo>,
     pub selected_deployment: usize,
     pub deployments_loading: bool,
+    // Pull requests
+    pub pull_requests: Vec<PullRequest>,
+    pub selected_pr: usize,
+    pub pull_requests_loading: bool,
     // Window manager for multi-panel UI
     pub window_manager: WindowManager,
 }
@@ -115,6 +122,10 @@ impl AppState {
             deployments: Vec::new(),
             selected_deployment: 0,
             deployments_loading: false,
+            // Pull requests
+            pull_requests: Vec::new(),
+            selected_pr: 0,
+            pull_requests_loading: false,
             // Window manager for multi-panel UI
             window_manager: WindowManager::new(),
         }
@@ -135,6 +146,8 @@ impl AppState {
             AppMsg::JobsFailed(e) => self.fail_loading_jobs(e),
             AppMsg::DeploymentsLoaded(data) => self.finish_loading_deployments(data),
             AppMsg::DeploymentsFailed(e) => self.fail_loading_deployments(e),
+            AppMsg::PullRequestsLoaded(data) => self.finish_loading_pull_requests(data),
+            AppMsg::PullRequestsFailed(e) => self.fail_loading_pull_requests(e),
         }
     }
 
@@ -145,6 +158,39 @@ impl AppState {
         self.start_loading_branches();
         self.start_loading_runs();
         self.start_loading_deployments();
+        self.start_loading_pull_requests();
+    }
+
+    pub fn start_loading_pull_requests(&mut self) {
+        self.pull_requests_loading = true;
+        self.pull_requests.clear();
+    }
+
+    pub fn finish_loading_pull_requests(&mut self, prs: Vec<PullRequest>) {
+        self.pull_requests_loading = false;
+        self.pull_requests = prs;
+        self.selected_pr = 0;
+    }
+
+    pub fn fail_loading_pull_requests(&mut self, msg: String) {
+        self.pull_requests_loading = false;
+        self.set_notification(msg);
+    }
+
+    pub fn next_pr(&mut self) {
+        if !self.pull_requests.is_empty() {
+            self.selected_pr = (self.selected_pr + 1) % self.pull_requests.len();
+        }
+    }
+
+    pub fn previous_pr(&mut self) {
+        if !self.pull_requests.is_empty() {
+            self.selected_pr = if self.selected_pr == 0 {
+                self.pull_requests.len() - 1
+            } else {
+                self.selected_pr - 1
+            };
+        }
     }
 
     // Runs management

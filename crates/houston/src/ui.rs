@@ -2,8 +2,8 @@ use houston_core::AppState;
 use houston_ui::{
     HeaderStats, PanelId,
     panels::{
-        render_deployments_panel, render_logs_panel, render_repos_panel, render_runs_panel,
-        render_tags_panel, render_workflows_panel,
+        render_deployments_panel, render_logs_panel, render_pull_requests_panel,
+        render_repos_panel, render_runs_panel, render_tags_panel, render_workflows_panel,
     },
     render_dialog, render_footer, render_header, render_log_viewer,
 };
@@ -44,7 +44,8 @@ pub fn render_ui(f: &mut Frame, app: &mut AppState, search_mode: bool) {
         || app.actions_loading
         || app.branches_loading
         || app.runs_loading
-        || app.deployments_loading;
+        || app.deployments_loading
+        || app.pull_requests_loading;
 
     // Calculate stats for header
     let stats = HeaderStats {
@@ -153,6 +154,15 @@ fn render_panels(f: &mut Frame, area: Rect, app: &mut AppState, search_mode: boo
                     app.selected_tag,
                     &mut app.tags_list_state,
                     app.tags_loading,
+                );
+            }
+            PanelId::PullRequests => {
+                render_pull_requests_panel(
+                    f,
+                    &ctx,
+                    &app.pull_requests,
+                    app.selected_pr,
+                    app.pull_requests_loading,
                 );
             }
         }

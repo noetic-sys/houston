@@ -152,7 +152,7 @@ impl LayoutNode {
     }
 }
 
-/// Preset layouts corresponding to the 1-5 keys.
+/// Preset layouts corresponding to the 1-6 keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PresetLayout {
     /// 1: Repos | Workflows | Tags (the original 3-panel view)
@@ -166,6 +166,8 @@ pub enum PresetLayout {
     Deployments,
     /// 5: Tags | Workflows
     Tags,
+    /// 6: Pull Requests
+    PullRequests,
 }
 
 impl PresetLayout {
@@ -177,6 +179,7 @@ impl PresetLayout {
             '3' => Some(PresetLayout::Runs),
             '4' => Some(PresetLayout::Deployments),
             '5' => Some(PresetLayout::Tags),
+            '6' => Some(PresetLayout::PullRequests),
             _ => None,
         }
     }
@@ -189,6 +192,7 @@ impl PresetLayout {
             PresetLayout::Runs => '3',
             PresetLayout::Deployments => '4',
             PresetLayout::Tags => '5',
+            PresetLayout::PullRequests => '6',
         }
     }
 
@@ -200,6 +204,7 @@ impl PresetLayout {
             PresetLayout::Runs => "Runs",
             PresetLayout::Deployments => "Deployments",
             PresetLayout::Tags => "Tags",
+            PresetLayout::PullRequests => "PRs",
         }
     }
 
@@ -245,6 +250,7 @@ impl PresetLayout {
                     vec![0.40, 0.60],
                 )
             }
+            PresetLayout::PullRequests => LayoutNode::Panel(PanelId::PullRequests),
         }
     }
 
@@ -261,6 +267,7 @@ impl PresetLayout {
             PresetLayout::Runs => PanelId::Runs,
             PresetLayout::Deployments => PanelId::Deployments,
             PresetLayout::Tags => PanelId::Tags,
+            PresetLayout::PullRequests => PanelId::PullRequests,
         }
     }
 
@@ -272,6 +279,7 @@ impl PresetLayout {
             PresetLayout::Runs,
             PresetLayout::Deployments,
             PresetLayout::Tags,
+            PresetLayout::PullRequests,
         ]
     }
 }
@@ -320,6 +328,10 @@ mod tests {
     fn test_preset_from_key() {
         assert_eq!(PresetLayout::from_key('1'), Some(PresetLayout::Repos));
         assert_eq!(PresetLayout::from_key('3'), Some(PresetLayout::Runs));
+        assert_eq!(
+            PresetLayout::from_key('6'),
+            Some(PresetLayout::PullRequests)
+        );
         assert_eq!(PresetLayout::from_key('x'), None);
     }
 
