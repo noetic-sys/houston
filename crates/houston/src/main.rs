@@ -10,6 +10,29 @@ mod ui;
 use events::handle_key_event;
 use ui::render_ui;
 
+/// Detect the current git repo as "owner/repo" from `git remote get-url origin`.
+/// Handles both SSH (git@github.com:owner/repo.git) and HTTPS formats.
+fn detect_local_repo() -> Option<String> {
+    let output = std::process::Command::new("git")
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let url = String::from_utf8(output.stdout).ok()?;
+    let url = url.trim();
+    let url = url.strip_suffix(".git").unwrap_or(url);
+    if !url.starts_with("https")
+        && let Some(path) = url.split(':').next_back()
+    {
+        // SSH: git@github.com:owner/repo
+        Some(path.to_string())
+    } else {
+        // HTTPS: https://github.com/owner/repo
+        let parts: Vec<&str> = url.split('/').collect();
+        (parts.len() >= 2).then(|| format!("{}/{}", parts[parts.len() - 2], parts[parts.len() - 1]))
+    }
+}
+
 fn get_github_token() -> Option<String> {
     if let Ok(token) = std::env::var("GITHUB_TOKEN")
         && !token.is_empty()
@@ -39,7 +62,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             vec!["houston".into(), "test-repo".into()]
         });
 
+    let local_repo = detect_local_repo();
     let mut app = AppState::new(repos, provider);
+
+    // Pre-select the repo matching the current directory's git remote
+    if let Some(repo) = local_repo
+        && let Some(idx) = app.filtered_repos.iter().position(|r| r == &repo)
+    {
+        app.selected_repo = idx;
+    }
 
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(io::stdout(), crossterm::terminal::EnterAlternateScreen)?;
